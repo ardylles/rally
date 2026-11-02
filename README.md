@@ -12,6 +12,17 @@ See [setup, implemented features, and remaining work](docs/07-application-implem
 
 The static prototype below remains available as a design reference.
 
+## Neon PostgreSQL
+
+The app is connected to the Rally project’s production branch on Neon. Run these commands from the repository root after pulling the environment variables with neon deploy:
+
+```powershell
+npm run build
+npm start
+```
+
+Open http://127.0.0.1:5082. Run npm run test:neon in another terminal to verify the running application. See [Neon setup, environment variables and verification](docs/10-neon-setup.md). The existing local PostgreSQL workflow remains available.
+
 ## Docker
 
 Run the app and PostgreSQL together with Docker Compose. Copy .env.example to .env, set POSTGRES_PASSWORD, then run:

@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+process.env.RALLY_URL ||= 'http://127.0.0.1:5082';
+const base = process.env.RALLY_URL;
+const health = await fetch(base + '/api/health');
+assert.equal(health.status, 200);
+assert.equal((await health.json()).database, 'PostgreSQL');
+console.log('PASS: Neon-backed API health query');
+const page = await fetch(base);
+assert.equal(page.status, 200);
+const html = await page.text();
+assert.ok(html.includes('<div id="root"></div>'));
+const assets = [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map(m => m[1]);
+assert.ok(assets.length >= 2);
+for (const asset of assets) assert.equal((await fetch(base + asset)).status, 200);
+console.log('PASS: built React page and assets served by ASP.NET Core');
+await import('./check-api.mjs');

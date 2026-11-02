@@ -9,11 +9,9 @@ using Npgsql;
 using Rally;
 using System.Threading.RateLimiting;
 var builder=WebApplication.CreateBuilder(args);
-var connection=builder.Configuration.GetConnectionString("Rally")??throw new InvalidOperationException("Set ConnectionStrings__Rally. See scripts/start-dev.ps1.");
+var connections=DatabaseConfiguration.Resolve(builder.Configuration);
 builder.WebHost.ConfigureKestrel(o=>o.Limits.MaxRequestBodySize=1024*1024);
-var connectionOptions=new NpgsqlConnectionStringBuilder(connection);
-if(builder.Configuration["Database:Password"] is {Length:>0} databasePassword)connectionOptions.Password=databasePassword;
-builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionOptions.ConnectionString));builder.Services.AddSingleton<Database>();
+builder.Services.AddSingleton(NpgsqlDataSource.Create(connections.Application));builder.Services.AddSingleton<Database>();
 var keysPath=builder.Configuration["DataProtection:KeysPath"]??Path.Combine(builder.Environment.ContentRootPath,"../../.local/keys");
 builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(keysPath));
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(o=>{
@@ -33,7 +31,9 @@ app.Use(async(ctx,next)=>{
 });
 app.UseRateLimiter();app.UseAuthentication();app.UseAuthorization();
 app.UseDefaultFiles();app.UseStaticFiles();
-await app.Services.GetRequiredService<Database>().Initialize();
+// Schema setup uses a direct connection, independently of the pooled request data source.
+await using(var schemaSource=NpgsqlDataSource.Create(connections.Schema))
+ await new Database(schemaSource).Initialize();
 string UserId(HttpContext c)=>c.User.FindFirstValue(ClaimTypes.NameIdentifier)??throw new RuleException("Sign in to continue.",401);
 async Task<string> ClubRole(Database db,string club,string user) {var rows=await db.Query("SELECT role FROM club_members WHERE club_id=@club AND user_id=@user",("club",club),("user",user));if(rows.Count==0)throw new RuleException("Club access denied.",403);return (string)rows[0]["role"]!;}
 async Task RequireClub(Database db,string club,string user){MeetRules.Require(await ClubRole(db,club,user)=="organizer","Club organizer access required.",403);}

@@ -1,4 +1,5 @@
 using Rally;
+using Microsoft.Extensions.Configuration;
 using System.Text.Json;
 int checks=0;
 void Check(bool condition,string name){if(!condition)throw new Exception("FAIL: "+name);checks++;Console.WriteLine("PASS: "+name);}
@@ -63,4 +64,22 @@ if(args.Length>0) {
  Check(sample.Players.Count(p=>p.Status==1)==22,"sample page matches 22 visibly confirmed players");
  Console.WriteLine($"Sample preview: {sample.Players.Count} roster entries, {sample.Players.Count(p=>p.Status==1)} confirmed.");
 }
+
+var neonUrl="postgresql://sample:p%40ss%3B%3Aword@ep-example-pooler.test/neondb?sslmode=require&channel_binding=require";
+var parsed=new Npgsql.NpgsqlConnectionStringBuilder(DatabaseConfiguration.FromUrl(neonUrl));
+Check(parsed.Password=="p@ss;:word"&&parsed.Username=="sample","Postgres URL credentials are decoded safely");
+Check(parsed.SslMode==Npgsql.SslMode.VerifyFull&&parsed.ChannelBinding==Npgsql.ChannelBinding.Require,"Neon URL enforces TLS verification and channel binding");
+Check(parsed.Port==5432&&parsed.Database=="neondb"&&parsed.MaxPoolSize==20,"Neon connection defaults and pool limit");
+var config=new Microsoft.Extensions.Configuration.ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{
+ ["DATABASE_URL"]=neonUrl,["DATABASE_URL_UNPOOLED"]=neonUrl.Replace("-pooler","")
+}).Build();
+var connections=DatabaseConfiguration.Resolve(config);
+Check(new Npgsql.NpgsqlConnectionStringBuilder(connections.Application).Host!.Contains("-pooler")&&!new Npgsql.NpgsqlConnectionStringBuilder(connections.Schema).Host!.Contains("-pooler"),"pooled app and direct schema connections");
+config["ConnectionStrings:Rally"]="Host=localhost;Database=local;Username=rally";
+config["Database:Password"]="semi;colon";
+var local=DatabaseConfiguration.Resolve(config);
+Check(local.Application==local.Schema&&new Npgsql.NpgsqlConnectionStringBuilder(local.Application).Password=="semi;colon","explicit local configuration takes precedence and quotes password");
+try { DatabaseConfiguration.FromUrl("postgresql://secret:secret@host/db?unsupported=secret");throw new Exception("Expected URL rejection"); }
+catch(InvalidOperationException e){Check(!e.ToString().Contains("secret"),"invalid connection errors do not expose secrets");}
+
 Console.WriteLine($"All {checks} checks passed.");
