@@ -1163,11 +1163,8 @@ function Workspace() {
                   </div>
                   <div className="layout">
                     <div>
-                      <div className="section-title">
-                        <h2>
-                          On the courts{" "}
-                          <span className="pill">Round {round + 1}</span>
-                        </h2>
+                      <div className="section-title court-section-heading">
+                        <h2>On the courts</h2>
                         <div className="round-controls">
                           <button
                             aria-label="Previous round"
@@ -1192,88 +1189,103 @@ function Workspace() {
                         {meet.matches
                           .filter((m) => m.round === round)
                           .map((m) => (
-                            <article className="court-card" key={m.id}>
-                              <div className="court-head">
-                                <div>
-                                  {courtName(m.court)}{" "}
-                                  {m.plannedStart && (
-                                    <span>
-                                      {" "}
-                                      · {m.plannedStart}–{m.plannedEnd}
-                                    </span>
-                                  )}
-                                  <small>{format(m.format)}</small>
-                                </div>
+                            <article
+                              className="court-card compact-court"
+                              key={m.id}
+                              aria-label={courtName(m.court)}
+                            >
+                              <header className="compact-court-heading">
+                                <h3>{courtName(m.court)}</h3>
                                 <span className={"pill " + m.status}>
                                   {m.status === "live"
-                                    ? "● Live match"
+                                    ? "Live"
                                     : m.status === "done"
                                       ? "Completed"
-                                      : "Ready to play"}
+                                      : "Upcoming"}
                                 </span>
-                              </div>
-                              <div className="court-surface">
+                              </header>
+                              <p className="compact-court-meta">
+                                {m.plannedStart && (
+                                  <span>
+                                    {m.plannedStart}–{m.plannedEnd}
+                                  </span>
+                                )}
+                                <span>{format(m.format)}</span>
+                              </p>
+                              <div
+                                className="court-lineup"
+                                aria-label="Match teams and score"
+                              >
                                 {m.teams.map((t, i) => (
-                                  <div className="team" key={i}>
-                                    {t.map((id) => (
-                                      <div className="person" key={id}>
-                                        <span className="avatar">
-                                          {initials(player(id)?.name || "?")}
-                                        </span>
-                                        <span>
-                                          {short(player(id)?.name || "Unknown")}
-                                        </span>
-                                      </div>
-                                    ))}
+                                  <div className="court-team-row" key={i}>
+                                    <div className="court-team-names">
+                                      <small>Team {i + 1}</small>
+                                      <strong>
+                                        {t
+                                          .map(
+                                            (id) =>
+                                              player(id)?.name || "Unknown",
+                                          )
+                                          .join(" & ")}
+                                      </strong>
+                                    </div>
+                                    <span
+                                      className="court-team-score"
+                                      aria-label={
+                                        "Team " +
+                                        (i + 1) +
+                                        " games: " +
+                                        (m.score?.[i] ?? "not recorded")
+                                      }
+                                    >
+                                      {m.score?.[i] ?? "—"}
+                                    </span>
                                   </div>
                                 ))}
-                                <span className="court-middle">
-                                  {m.score ? m.score.join(" : ") : "VS"}
-                                </span>
                               </div>
-                              <div className="court-foot">
-                                <span className="timer">
-                                  <Clock3 size={13} />
+                              {meet.timing && m.startedAt && (
+                                <p className="compact-court-timer">
+                                  <Clock3 size={14} />
+                                  {elapsed(m)}
                                   {m.status === "done"
-                                    ? "Result saved"
-                                    : meet.timing
-                                      ? elapsed(m)
-                                      : "Timing off"}
-                                </span>
-                                {canManage && (
+                                    ? " · Final time"
+                                    : " · Elapsed"}
+                                </p>
+                              )}
+                              <div className="compact-court-actions">
+                                {canManage && m.status === "ready" && (
                                   <Button
-                                    primary={m.status === "ready"}
                                     disabled={busy}
-                                    onClick={() =>
-                                      m.status === "ready" && meet.timing
-                                        ? change(
-                                            "/matches/" + m.id + "/start",
-                                            {},
-                                          )
-                                        : open("result", m)
-                                    }
+                                    onClick={() => open("substitute", m)}
                                   >
-                                    {m.status === "ready"
+                                    Substitute
+                                  </Button>
+                                )}
+                                <Button
+                                  primary={canManage && m.status !== "done"}
+                                  disabled={busy}
+                                  onClick={() =>
+                                    canManage &&
+                                    m.status === "ready" &&
+                                    meet.timing
+                                      ? change(
+                                          "/matches/" + m.id + "/start",
+                                          {},
+                                        )
+                                      : open("result", m)
+                                  }
+                                >
+                                  {!canManage
+                                    ? "Match details"
+                                    : m.status === "ready"
                                       ? meet.timing
                                         ? "Start match"
                                         : "Enter result"
                                       : m.status === "live"
-                                        ? "End & save result"
+                                        ? "End match"
                                         : "View result"}
-                                    <ArrowUpRight size={13} />
-                                  </Button>
-                                )}
+                                </Button>
                               </div>
-                              {canManage && m.status === "ready" && (
-                                <div className="match-actions">
-                                  <button
-                                    className="text-button"
-                                    onClick={() => open("substitute", m)}
-                                  >
-                                    Substitute a player
-                                  </button>
-                                </div>
-                              )}
                             </article>
                           ))}
                       </div>

@@ -1779,4 +1779,157 @@ footer b {
   color: #68766b;
 }
 
-.public-page{max-width:1200px;margin:0 auto;padding:32px 24px}.feature-card{padding:24px;margin-top:24px}.feature-card .row-actions{margin-top:12px;flex-wrap:wrap}.feature-card input[readonly]{width:100%;padding:12px}
+.public-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+.feature-card {
+  padding: 24px;
+  margin-top: 24px;
+}
+.feature-card .row-actions {
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.feature-card input[readonly] {
+  width: 100%;
+  padding: 12px;
+}
+
+/* Compact court cards: readable teams and touch-sized actions. */
+.compact-court {
+  min-width: 0;
+  padding: 16px;
+}
+.compact-court-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.compact-court-heading h3 {
+  min-width: 0;
+  font-size: 15px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.compact-court-heading .pill {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 5px 8px;
+}
+.compact-court-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #637568;
+  line-height: 1.5;
+}
+.court-lineup {
+  margin: 12px 0;
+}
+.court-team-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+.court-team-row + .court-team-row {
+  border-top: 1px solid var(--line);
+}
+.court-team-names {
+  min-width: 0;
+}
+.court-team-names small {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: #637568;
+}
+.court-team-names strong {
+  display: block;
+  font-size: 15px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.court-team-score {
+  font-size: 24px;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.compact-court-timer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  color: #637568;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.compact-court-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.compact-court-actions .button {
+  flex: 1 1 110px;
+  justify-content: center;
+  min-height: 44px;
+  font-size: 13px;
+  padding: 10px 12px;
+}
+.court-section-heading .round-controls button {
+  min-width: 44px;
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+}
+.court-section-heading .round-controls span {
+  white-space: nowrap;
+}
+@media (max-width: 700px) {
+  .courts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .layout > div,
+  .shell,
+  .tabs {
+    min-width: 0;
+  }
+  .court-section-heading {
+    align-items: center;
+  }
+  .court-section-heading h2 {
+    font-size: 17px;
+  }
+  .rest {
+    flex-wrap: wrap;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .rest > span {
+    flex-basis: 100%;
+    overflow-wrap: anywhere;
+  }
+  .meet-toolbar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .meet-toolbar .tabs {
+    flex: 1 1 100%;
+    overflow-x: auto;
+  }
+  .meet-toolbar .tabs button {
+    flex-shrink: 0;
+    min-height: 44px;
+  }
+  .meet-toolbar > .row-actions {
+    margin-left: auto;
+  }
+}
