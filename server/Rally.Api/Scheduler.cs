@@ -10,7 +10,7 @@ public static class Scheduler {
   CourtPlanning.Validate(m);
   // History and explicit substitutions are pinned; a departure invalidates only unstarted assignments.
   var pinned=m.Matches.Where(x=>x.Status!="ready"||(x.Round<from&&x.Teams.SelectMany(t=>t).All(id=>MeetRules.AvailableForMatch(m.Players.Single(p=>p.Id==id),x)))||
-   (x.Changes.Count>0&&x.Teams.All(t=>MeetRules.CompatibleTeam(m,t))&&x.Teams.SelectMany(t=>t).All(id=>MeetRules.AvailableForMatch(m.Players.Single(p=>p.Id==id),x)))).ToList();
+   ((x.Changes.Count>0||x.ManualAssignment)&&x.Teams.All(t=>MeetRules.CompatibleTeam(m,t))&&x.Teams.SelectMany(t=>t).All(id=>MeetRules.AvailableForMatch(m.Players.Single(p=>p.Id==id),x)))).ToList();
   Build(m,from,pinned,seed);
  }
  public static Meet AddRounds(Meet original,ExtraRoundsInput input,int seed=91) {
@@ -38,7 +38,31 @@ public static class Scheduler {
   m.SchedulingNotes=previousNotes.Concat(m.SchedulingNotes).Distinct().ToList();
   return m;
  }
- private static void Build(Meet m,int from,List<Match> pinned,int seed) {
+ public static Meet RegenerateAll(Meet original,bool confirmed,int seed=91) {
+  MeetRules.Require(confirmed,"Confirm full regeneration: all matches, results, statistics and live timers will be replaced.");
+  var m=Copy(original);CourtPlanning.Validate(m);
+  m.Matches=[];Build(m,0,[],seed);
+  MeetRules.Require(m.Matches.Count>0,"No matches can be arranged with the current attendance, pairs and playing sides.");
+  return m;
+ }
+ private static Meet Copy(Meet original)=>System.Text.Json.JsonSerializer.Deserialize<Meet>(System.Text.Json.JsonSerializer.Serialize(original,Json.Options),Json.Options)!;
+ public static Meet AddMatch(Meet original,int court,int seed=91) {
+  MeetRules.Require(court>=1&&court<=original.Courts,"Choose a registered court.");
+  int first=original.Matches.Select(x=>x.Round).DefaultIfEmpty(0).Max();
+  for(int round=first;round<20;round++) {
+   if(original.Matches.Any(x=>x.Round==round&&x.Court==court))continue;
+   var m=Copy(original);m.SlotMinutes=CourtPlanning.Slot(original);m.Rounds=Math.Max(original.Rounds,round+1);
+   foreach(var p in m.Players.Where(p=>p.AvailableFromRound>=original.Rounds))p.AvailableFromRound=m.Rounds;
+   Build(m,round,m.Matches.ToList(),seed,court,round);
+   var added=m.Matches.SingleOrDefault(x=>!original.Matches.Any(old=>old.Id==x.Id));
+   if(added==null)continue;
+   added.ManualAssignment=true;added.PlannedStart=null;added.PlannedEnd=null;
+   m.SchedulingNotes=original.SchedulingNotes.Concat(m.SchedulingNotes).Append("Added match has no fixed start time. Start it when its players and selected court are free.").Distinct().ToList();
+   return m;
+  }
+  throw new RuleException("No new match can be arranged with the available players, fixed pairs and sides within 20 rounds.");
+ }
+ private static void Build(Meet m,int from,List<Match> pinned,int seed,int? onlyCourt=null,int? onlyRound=null) {
   var rng=new Random(seed);var n=m.Players.Count;
   var fixedPairs=m.Mode is "fixed" or "mixed"?m.FixedPairs.Select(t=>t.Select(id=>m.Players.FindIndex(p=>p.Id==id)).ToArray()).ToList():[];
   // New players entered for just one match must not become general rotation members.
@@ -71,9 +95,9 @@ public static class Scheduler {
     }
     var reserved=pinned.Where(x=>x.Round==round).ToList();
     foreach(var match in reserved)Record(match.Teams.Select(t=>t.Select(id=>m.Players.FindIndex(p=>p.Id==id)).ToArray()).ToArray());
-    if(round<from)continue;
+    if(round<from||(onlyRound.HasValue&&round!=onlyRound))continue;
     var occupied=reserved.SelectMany(x=>x.Teams.SelectMany(t=>t)).ToHashSet();
-    var available=CourtPlanning.Available(m,round).Where(c=>reserved.All(x=>x.Court!=c)).ToList();
+    var available=(onlyCourt.HasValue?new List<int>{onlyCourt.Value}:CourtPlanning.Available(m,round)).Where(c=>reserved.All(x=>x.Court!=c)).ToList();
     var eligible=EligiblePlayers(round);
     var free=eligible.Where(i=>!occupied.Contains(m.Players[i].Id)).ToHashSet();
     var pairs=fixedPairs.Where(t=>t.All(free.Contains)&&MeetRules.Compatible(m.Players[t[0]],m.Players[t[1]])).ToList();
@@ -124,6 +148,7 @@ public static class Scheduler {
   }
   m.Matches=best!.OrderBy(x=>x.Round).ThenBy(x=>x.Court).ToList();
   m.SchedulingNotes=[];
+  if(m.Rounds*CourtPlanning.Slot(m)>m.DurationMinutes||m.Matches.Any(x=>m.CourtAvailability.Count>0&&(CourtPlanning.Start(m,x.Round)<CourtPlanning.Minute(m.CourtAvailability[x.Court-1].Start)||CourtPlanning.Start(m,x.Round)+CourtPlanning.Slot(m)>CourtPlanning.Minute(m.CourtAvailability[x.Court-1].End))))m.SchedulingNotes.Add("Some estimated match times fall outside the session or court bookings. Times are guidance; confirm the court is available before starting.");
   if(m.Players.Any(p=>p.AvailableFromRound>0))m.SchedulingNotes.Add("Late players receive a fair share from arrival onward; missed rounds do not create catch-up games.");
   if(m.Players.Any(p=>p.Side!="both")&&Enumerable.Range(from,m.Rounds-from).Any(r=>m.Matches.Count(x=>x.Round==r)<CourtPlanning.Available(m,r).Count))m.SchedulingNotes.Add("Some courts are unused to respect strict playing sides, attendance, fixed partners and fair rotation. Both allows either side.");
   if(m.Mode=="fixed")foreach(var pair in fixedPairs) {

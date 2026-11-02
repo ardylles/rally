@@ -49,8 +49,8 @@ foreach(var mode in new[]{"rotating","balanced","fixed","mixed"}) {
 var late=Example(8,2,6,"rotating");late.Time="18:00";late.SlotMinutes=20;
 late.CourtAvailability=[new(){Name="A",Start="18:00",End="20:00"},new(){Name="B",Start="18:30",End="19:50"}];Scheduler.Generate(late);
 Check(late.Matches.Where(x=>x.Court==2).All(x=>x.Round>=2&&x.Round<=4),"full slot must fit after opening and before closing");
-late.CourtAvailability[0].End="19:00";Reject(()=>Scheduler.Generate(late),"reject uncovered rounds");
-late.CourtAvailability[0].End="20:00";late.SlotMinutes=30;Reject(()=>Scheduler.Generate(late),"reject rounds beyond session");
+late.CourtAvailability[0].End="19:00";Scheduler.Generate(late);Check(late.SchedulingNotes.Any(n=>n.Contains("guidance")),"uncovered booking times generate an advisory warning");
+late.CourtAvailability[0].End="20:00";late.SlotMinutes=30;Scheduler.Generate(late);Check(late.Matches.Any(x=>x.Round==5),"round estimates can exceed session time");
 Reject(()=>ReclubScraper.Code("https://evil.test/m/PATO94"),"reject other scraper hosts");
 Reject(()=>ReclubScraper.Code("https://reclub.co:444/m/PATO94"),"reject nonstandard scraper ports");
 Reject(()=>ReclubScraper.Parse("<html>Changed markup</html>","PATO94"),"changed Reclub markup fails explicitly");
@@ -88,8 +88,7 @@ Scheduler.Generate(requested);
 Check(requested.Matches.Where(x=>x.Court==3).Any()&&requested.Matches.Where(x=>x.Court==3).All(x=>x.Round<4),"requested seven 25-minute rounds respect Court C closing");
 Check(requested.Matches.Where(x=>x.Round==6).All(x=>x.PlannedEnd=="20:55"),"requested 180-minute meet ends play at 20:55");
 requested.Time="16:00";
-try { CourtPlanning.Validate(requested);throw new Exception("Expected session mismatch"); }
-catch(RuleException e){Check(e.Message.Contains("Court A")&&e.Message.Contains("16:00–19:00")&&e.Message.Contains("18:00–21:00"),"court error identifies booking and actual session");}
+CourtPlanning.Validate(requested);Check(true,"bookings outside session are advisory");
 requested.Time="18:00";requested.CourtAvailability[0].End="17:00";
 try { CourtPlanning.Validate(requested);throw new Exception("Expected reversed times"); }
 catch(RuleException e){Check(e.Message.Contains("Court A")&&e.Message.Contains("later than start"),"reversed court times have a separate clear error");}
@@ -210,8 +209,8 @@ var bookedExtra=Example(8,2,4,"rotating");bookedExtra.SlotMinutes=20;bookedExtra
 var spare=Scheduler.AddRounds(bookedExtra,new(0,2));
 Check(spare.Matches.Where(x=>x.Round>=4).All(x=>x.Court==1)&&spare.DurationMinutes==120,"extra rounds use spare session time and honor early court closing");
 var beforeReject=JsonSerializer.Serialize(spare);
-Reject(()=>Scheduler.AddRounds(spare,new(0,1,140)),"extra rounds reject unextended court bookings");
-Check(JsonSerializer.Serialize(spare)==beforeReject,"rejected extension leaves meet unchanged");
+var advisoryExtra=Scheduler.AddRounds(spare,new(0,1));Check(advisoryExtra.Matches.Any(x=>x.Round==6)&&advisoryExtra.SchedulingNotes.Any(n=>n.Contains("guidance")),"extra rounds allow unextended bookings with warning");
+Check(JsonSerializer.Serialize(spare)==beforeReject,"advisory extension leaves original meet unchanged");
 var longer=Scheduler.AddRounds(spare,new(0,1,140,[new(){Name="A",Start="16:00",End="18:20"},new(){Name="B",Start="16:00",End="17:20"}]));
 Check(longer.Matches.Any(x=>x.Round==6&&x.PlannedStart=="18:00"&&x.PlannedEnd=="18:20"),"explicit court extension enables later round");
 Reject(()=>Scheduler.AddRounds(longer,new(0,0)),"reject zero extra rounds");
@@ -220,4 +219,32 @@ var completeExtra=Example(4,1,2,"rotating");Scheduler.Generate(completeExtra);fo
 Check(Scheduler.AddRounds(completeExtra,new(0,1,180)).Matches.Count==3,"completed meet can append extra rounds");
 var allGone=Example(4,1,2,"rotating");Scheduler.Generate(allGone);MeetRules.Depart(allGone,new(0,"p0",0));
 Reject(()=>Scheduler.AddRounds(allGone,new(0,1,180)),"empty extra schedule reports insufficient players");
+foreach(var mode in new[]{"rotating","balanced","fixed","mixed"}) {
+ var quickBase=Example(8,2,3,mode,1);Scheduler.Generate(quickBase);
+ MeetRules.Result(quickBase,quickBase.Matches[0],new(0,[4,1],new(){[quickBase.Matches[0].Teams[0][0]]=new(){Winners=5,UnforcedErrors=1}}));
+ var existing=quickBase.Matches.ToDictionary(x=>x.Id,x=>JsonSerializer.Serialize(x));
+ var quick=Scheduler.AddMatch(quickBase,2);var added=quick.Matches.Single(x=>!existing.ContainsKey(x.Id));
+ Check(added.Court==2&&added.ManualAssignment&&added.PlannedStart==null&&added.PlannedEnd==null,mode+" quick match uses selected court without fixed time");
+ Check(quick.Matches.Count==quickBase.Matches.Count+1&&existing.All(kv=>quick.Matches.Any(x=>x.Id==kv.Key&&JsonSerializer.Serialize(x)==kv.Value)),mode+" quick match preserves every existing assignment");
+ Check(added.Teams.All(t=>MeetRules.CompatibleTeam(quick,t)),mode+" quick match respects sides");
+ Scheduler.RegenerateRemaining(quick);Check(quick.Matches.Any(x=>x.Id==added.Id),mode+" quick match survives remaining regeneration");
+ var regenerated=Scheduler.RegenerateAll(quick,true);
+ Check(regenerated.Matches.All(x=>x.Status=="ready"&&x.Score==null&&x.Stats.Count==0&&x.StartedAt==null&&!quick.Matches.Any(old=>old.Id==x.Id)),mode+" full regeneration creates fresh upcoming matches");
+}
+var managedMatches=Example(8,2,3,"rotating");Scheduler.Generate(managedMatches);
+var restartMatch=managedMatches.Matches[0];MeetRules.Start(managedMatches,restartMatch);MeetRules.Result(managedMatches,restartMatch,new(0,[4,1],new(){[restartMatch.Teams[0][0]]=new(){Winners=9}}));
+var originalTeams=JsonSerializer.Serialize(restartMatch.Teams);
+Reject(()=>MeetRules.Restart(restartMatch,false),"restart requires explicit confirmation");
+MeetRules.Restart(restartMatch,true);
+Check(restartMatch.Status=="ready"&&restartMatch.Score==null&&restartMatch.Stats.Count==0&&restartMatch.StartedAt==null&&restartMatch.EndedAt==null&&JsonSerializer.Serialize(restartMatch.Teams)==originalTeams,"restart clears result and timer while retaining teams");
+MeetRules.Start(managedMatches,restartMatch);
+Check(restartMatch.Status=="live"&&restartMatch.StartedAt!=null,"restarted match can start a new timer");
+var beforeDelete=managedMatches.Matches.Count;
+Reject(()=>MeetRules.Delete(managedMatches,restartMatch,false),"delete requires explicit confirmation");
+MeetRules.Delete(managedMatches,restartMatch,true);
+Check(managedMatches.Matches.Count==beforeDelete-1&&!managedMatches.Matches.Any(x=>x.Id==restartMatch.Id),"delete removes selected live match only");
+Reject(()=>Scheduler.RegenerateAll(managedMatches,false),"full regeneration requires warning acknowledgment");
+Reject(()=>Scheduler.AddMatch(managedMatches,3),"quick generation rejects nonexistent court");
+Check(CourtPlanning.Clock(1450)=="00:10 (+1d)","late estimated slots show following day explicitly");
+var outsideBooking=Scheduler.AddMatch(spare,2);Check(outsideBooking.Matches.Any(x=>x.ManualAssignment&&x.Court==2&&x.PlannedStart==null),"quick match accepts selected court outside estimated booking");
 Console.WriteLine($"All {checks} checks passed.");

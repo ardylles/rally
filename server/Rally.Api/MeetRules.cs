@@ -71,6 +71,16 @@ public static class MeetRules {
   Require(!m.Matches.Any(x=>x.Id!=match.Id&&x.Status=="live"&&(x.Court==match.Court||x.Teams.SelectMany(t=>t).Any(ids.Contains))),"A player or this court is still in a live match.",409);
   match.Status="live"; match.StartedAt=DateTimeOffset.UtcNow;
  }
+ public static void Restart(Match match,bool confirmed) {
+  Require(confirmed,"Confirm restarting this match.");
+  Require(match.Status is "live" or "done","Only started or completed matches can restart.");
+  match.Status="ready";match.StartedAt=null;match.EndedAt=null;match.Score=null;match.Stats=[];
+  match.ManualAssignment=true;
+ }
+ public static void Delete(Meet m,Match match,bool confirmed) {
+  Require(confirmed,"Confirm removing this match.");
+  m.Matches.Remove(match);
+ }
  public static void Result(Meet m,Match match,ResultInput input) {
   if(match.Status=="ready") { Require(match.Teams.SelectMany(t=>t).All(id=>AvailableForMatch(m.Players.Single(p=>p.Id==id),match)),"A player is not available for this round."); Require(match.Teams.All(t=>CompatibleTeam(m,t)),"A team has incompatible playing sides."); }
   Require(input.Score is {Length:2},"Enter both game totals.");

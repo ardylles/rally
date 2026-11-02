@@ -45,6 +45,7 @@ public sealed class Match {
  public string[][] Teams { get; set; } = [];
  public string Format { get; set; } = "4";
  public string Status { get; set; } = "ready";
+ public bool ManualAssignment { get; set; }
  public DateTimeOffset? StartedAt { get; set; }
  public DateTimeOffset? EndedAt { get; set; }
  public int[]? Score { get; set; }
@@ -77,3 +78,6 @@ public sealed record SharingInput(int Revision, bool Enabled, bool Reset = false
 public sealed record AdminUserInput(bool Disabled);
 
 public sealed record ExtraRoundsInput(int Revision, int Count, int? DurationMinutes = null, List<CourtWindow>? CourtAvailability = null);
+
+public sealed record GenerateMatchInput(int Revision, int Court);
+public sealed record ConfirmedRevisionInput(int Revision, bool Confirmed);

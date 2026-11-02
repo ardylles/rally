@@ -507,14 +507,7 @@ function Workspace() {
     }
     if (kind === "extraRounds" && meet) {
       setExtraCount(1);
-      setExtraDuration(
-        Math.max(
-          meet.durationMinutes,
-          (meet.rounds + 1) *
-            (meet.slotMinutes ||
-              Math.floor(meet.durationMinutes / meet.rounds)),
-        ),
-      );
+      setExtraDuration(meet.durationMinutes);
     }
     if (kind === "result") setStatsDraft({ ...match?.stats });
     setModal({ kind, match, player: p });
@@ -631,6 +624,31 @@ function Workspace() {
           setModal(null);
           setToast("Your meet is ready.");
         }
+      } else if (kind === "generateMatch") {
+        const oldIds = new Set(meet!.matches.map((m) => m.id));
+        const updated = await change("/generate-match", {
+          court: Number(f.get("court")),
+        });
+        if (updated) {
+          const added = updated.matches.find((m) => !oldIds.has(m.id));
+          if (added) setRound(added.round);
+          setView("overview");
+        }
+      } else if (kind === "regenerateAll") {
+        const updated = await change("/regenerate-all", {
+          confirmed: f.has("confirmed"),
+        });
+        if (updated) {
+          setRound(0);
+          setView("overview");
+        }
+      } else if (kind === "restartMatch" || kind === "deleteMatch") {
+        await change(
+          "/matches/" +
+            modal!.match!.id +
+            (kind === "restartMatch" ? "/restart" : "/delete"),
+          { confirmed: f.has("confirmed") },
+        );
       } else if (kind === "extraRounds") {
         const oldRounds = meet!.rounds;
         const updated = await change("/extra-rounds", {
@@ -750,6 +768,31 @@ function Workspace() {
           p.unavailableFromRound != null || (p.availableFromRound || 0) > 0,
       ) ||
       meet?.matches.some((m) => m.status !== "ready" || m.changes.length > 0);
+  function matchManagement(m: Match) {
+    if (!canManage) return null;
+    return (
+      <div className="match-management">
+        {m.status !== "ready" && (
+          <button
+            type="button"
+            className="text-button"
+            disabled={busy}
+            onClick={() => open("restartMatch", m)}
+          >
+            Restart match
+          </button>
+        )}
+        <button
+          type="button"
+          className="text-button"
+          disabled={busy}
+          onClick={() => open("deleteMatch", m)}
+        >
+          {m.status === "ready" ? "Remove upcoming match" : "Delete match"}
+        </button>
+      </div>
+    );
+  }
   function matchTable(matches: Match[]) {
     return (
       <div className="table-wrap">
@@ -808,6 +851,7 @@ function Workspace() {
                           : "Match details"}
                     </button>
                   </div>
+                  {matchManagement(m)}
                 </td>
               </tr>
             ))}
@@ -1195,11 +1239,11 @@ function Workspace() {
                         <h2>On the courts</h2>
                         {canManage && (
                           <Button
-                            disabled={busy || meet.rounds >= 20}
-                            onClick={() => open("extraRounds")}
+                            disabled={busy}
+                            onClick={() => open("generateMatch")}
                           >
                             <Plus size={15} />
-                            Extra rounds
+                            Generate match
                           </Button>
                         )}
                         <div className="round-controls">
@@ -1323,6 +1367,7 @@ function Workspace() {
                                         : "View result"}
                                 </Button>
                               </div>
+                              {matchManagement(m)}
                             </article>
                           ))}
                       </div>
@@ -1437,11 +1482,23 @@ function Workspace() {
                     {canManage && (
                       <div className="row-actions">
                         <Button
+                          disabled={busy}
+                          onClick={() => open("generateMatch")}
+                        >
+                          <Plus size={15} />
+                          Generate match
+                        </Button>
+                        <Button
                           disabled={busy || meet.rounds >= 20}
                           onClick={() => open("extraRounds")}
                         >
-                          <Plus size={15} />
                           Extra rounds
+                        </Button>
+                        <Button
+                          disabled={busy}
+                          onClick={() => open("regenerateAll")}
+                        >
+                          Regenerate all
                         </Button>
                         <Button
                           disabled={busy || !canRegenerateRemaining}
@@ -1455,9 +1512,11 @@ function Workspace() {
                   </div>
                   <div className="hint">
                     {meet.rounds} rounds · {modes[meet.mode]}. Regenerating
-                    preserves started matches and eligible substitutions.
-                    Planned times use {meet.timezone}. Allow for changeovers;
-                    actual match durations can overrun the planned slots.
+                    remaining preserves started matches and eligible
+                    substitutions; Regenerate all replaces every match after
+                    confirmation. Planned times use {meet.timezone}. Allow for
+                    changeovers; actual match durations can overrun the planned
+                    slots.
                   </div>
                   <div className="hint">
                     {meet.courtAvailability?.length
@@ -1802,6 +1861,13 @@ function Workspace() {
               side: "Playing side",
               regenerateRemaining: "Regenerate remaining matches",
               extraRounds: "Generate extra rounds",
+              generateMatch: "Generate a new match",
+              regenerateAll: "Regenerate all matches",
+              restartMatch: "Restart match",
+              deleteMatch:
+                modal.match?.status === "ready"
+                  ? "Remove upcoming match"
+                  : "Delete match",
               pairs: "Choose fixed partners",
               skill: "Edit player skill",
               organizers: "Assign meet organizers",
@@ -1816,20 +1882,28 @@ function Workspace() {
           busy={busy}
           readOnly={modal.kind === "result" && !canManage}
           label={
-            modal.kind === "extraRounds"
-              ? "Generate extra rounds"
-              : [
-                    "departure",
-                    "regenerateRemaining",
-                    "arrival",
-                    "side",
-                  ].includes(modal.kind)
-                ? "Save & regenerate remaining"
-                : ["pairs", "settings"].includes(modal.kind)
-                  ? "Save & generate"
-                  : modal.kind === "create"
-                    ? "Create meet"
-                    : "Save"
+            modal.kind === "generateMatch"
+              ? "Generate match"
+              : modal.kind === "regenerateAll"
+                ? "Replace all matches"
+                : modal.kind === "restartMatch"
+                  ? "Restart match"
+                  : modal.kind === "deleteMatch"
+                    ? "Remove match"
+                    : modal.kind === "extraRounds"
+                      ? "Generate extra rounds"
+                      : [
+                            "departure",
+                            "regenerateRemaining",
+                            "arrival",
+                            "side",
+                          ].includes(modal.kind)
+                        ? "Save & regenerate remaining"
+                        : ["pairs", "settings"].includes(modal.kind)
+                          ? "Save & generate"
+                          : modal.kind === "create"
+                            ? "Create meet"
+                            : "Save"
           }
         >
           {error && (
@@ -1898,6 +1972,81 @@ function Workspace() {
                 </p>
               </div>
             )}
+          {modal.kind === "generateMatch" && meet && (
+            <>
+              <p className="hint">
+                Choose a court. We’ll generate one fair match, keeping every
+                existing match unchanged. It joins the last round if players and
+                court are unassigned there, otherwise a new round is added.
+              </p>
+              <Field label="Court">
+                <select name="court" required>
+                  {Array.from({ length: meet.courts }, (_, i) => (
+                    <option value={i + 1} key={i}>
+                      {courtName(i + 1)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <p className="subtle">
+                No fixed start time. Start when the court and players are free;
+                booking times are guidance. Attendance, fixed pairs and strict
+                playing sides still apply.
+              </p>
+            </>
+          )}
+          {modal.kind === "regenerateAll" && meet && (
+            <>
+              <div className="error" role="alert">
+                <strong>This replaces the entire schedule.</strong>
+                <p>
+                  All {meet.matches.length} existing matches will be removed,
+                  including{" "}
+                  {meet.matches.filter((m) => m.status === "done").length}{" "}
+                  completed and{" "}
+                  {meet.matches.filter((m) => m.status === "live").length} live
+                  matches. Scores, player statistics, substitutions and timers
+                  will be cleared from the active meet. New matches will be
+                  Upcoming.
+                </p>
+              </div>
+              <p className="hint">
+                Player attendance, fixed pairs, playing sides and meet
+                configuration are kept. A before-change snapshot is retained in
+                the audit history. Use Regenerate remaining to preserve played
+                and live matches.
+              </p>
+              <label className="checkbox">
+                <input type="checkbox" name="confirmed" required />I understand
+                that all existing matches and their results will be replaced.
+              </label>
+            </>
+          )}
+          {["restartMatch", "deleteMatch"].includes(modal.kind) &&
+            modal.match && (
+              <>
+                <p className="subtitle">
+                  Round {modal.match.round + 1} · {courtName(modal.match.court)}{" "}
+                  · {modal.match.teams.map(team).join(" vs ")}
+                </p>
+                <div className="error" role="alert">
+                  {modal.kind === "restartMatch"
+                    ? "Restart clears this match’s score, player statistics and timer, and returns it to Upcoming. Teams and court stay the same. Press Start match when ready."
+                    : modal.match.status === "ready"
+                      ? "Remove this upcoming match from the schedule? Other matches will stay unchanged."
+                      : "Delete this match, including its score, player statistics and timer? Other matches will stay unchanged."}
+                </div>
+                <p className="subtle">
+                  The previous meet version is retained in the audit history.
+                </p>
+                <label className="checkbox">
+                  <input type="checkbox" name="confirmed" required />
+                  Confirm{" "}
+                  {modal.kind === "restartMatch" ? "restart" : "removal"} of
+                  this match.
+                </label>
+              </>
+            )}
           {modal.kind === "extraRounds" && meet && (
             <>
               <p className="hint">
@@ -1916,14 +2065,6 @@ function Workspace() {
                     onChange={(e) => {
                       const count = Number(e.target.value);
                       setExtraCount(count);
-                      setExtraDuration(
-                        Math.max(
-                          meet.durationMinutes,
-                          (meet.rounds + count) *
-                            (meet.slotMinutes ||
-                              Math.floor(meet.durationMinutes / meet.rounds)),
-                        ),
-                      );
                     }}
                   />
                 </Field>
@@ -1949,8 +2090,7 @@ function Workspace() {
                 <>
                   <h3 className="spaced-title">Court closing times</h3>
                   <p className="subtle">
-                    Keep courts that close early unchanged. At least one court
-                    must cover each complete extra round. Only extend a booking
+                    Keep courts that close early unchanged. Booking times are guidance and do not block extra rounds. Only extend a booking
                     if the court is available.
                   </p>
                   <div className="fields">
@@ -2134,9 +2274,8 @@ function Workspace() {
                   </strong>{" "}
                   ·{" "}
                   {modal.kind === "settings" ? meet?.timezone : "Asia/Jakarta"}.
-                  Court bookings must fit within these times. For the
-                  18:00–21:00 example, set Start time to 18:00 and Session
-                  minutes to 180.
+                  Court booking times are planning guidance. For the 18:00–21:00
+                  example, set Start time to 18:00 and Session minutes to 180.
                 </div>
                 <Field label="Court availability · one court per line" full>
                   <textarea
@@ -2158,7 +2297,7 @@ function Workspace() {
                   <small>
                     Leave blank for all courts to use the full session.
                     Otherwise enter one line per court. Times use the meet
-                    timezone. Rounds must fit inside the session; allow time for
+                    timezone. Round times are estimates; allow time for
                     changeovers.
                   </small>
                 </Field>

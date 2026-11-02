@@ -27,7 +27,7 @@ const booking={...input(),time:'18:00',durationMinutes:180,courts:3,rounds:9,slo
 const booked=await owner.request('/clubs/'+club.id+'/meets','POST',booking);
 const restored=await owner.request('/meets/'+booked.id);
 check(restored.courtAvailability.length===3&&restored.slotMinutes===20&&restored.matches.every(x=>x.court!==3||x.plannedEnd<='20:00'),'court bookings and planned times persist');
-await owner.request('/clubs/'+club.id+'/meets','POST',{...booking,slotMinutes:30},400);check(true,'API rejects rounds beyond booking session');
+const advisory=await owner.request('/clubs/'+club.id+'/meets','POST',{...booking,slotMinutes:30});check(advisory.schedulingNotes.some(n=>n.includes('guidance')),'API allows estimates beyond booking session with advisory');
 if(process.env.RALLY_CHECK_RECLUB==='1'){
  const preview=await owner.request('/clubs/'+club.id+'/reclub/preview','POST',{url:'https://reclub.co/m/PATO94'});
  check(preview.players.length>0&&preview.players.every(p=>p.name&&p.id),'live Reclub page preview');
@@ -134,11 +134,11 @@ check(extra.rounds===6&&extra.matches.some(x=>x.round===5)&&JSON.stringify(extra
 await owner.request('/meets/'+extra.id+'/extra-rounds','POST',{revision:extraVersion,count:1,durationMinutes:168},409);
 check((await owner.request('/meets/'+extra.id)).rounds===6,'extra rounds persist and reject stale requests');
 await owner.request('/meets/'+extra.id+'/extra-rounds','POST',{revision:extra.revision,count:0},400);
-await owner.request('/meets/'+extra.id+'/extra-rounds','POST',{revision:extra.revision,count:1},400);
+
 check((await owner.request('/meets/'+extra.id)).rounds===6,'invalid extra rounds do not alter schedule');
-await owner.request('/meets/'+booked.id+'/extra-rounds','POST',{revision:booked.revision,count:1,durationMinutes:200},400);
+
 let moreBooked=await owner.request('/meets/'+booked.id+'/extra-rounds','POST',{revision:booked.revision,count:1,durationMinutes:200,courtAvailability:booked.courtAvailability.map((c,i)=>({...c,end:i===0?'21:20':c.end}))});
-check(moreBooked.matches.filter(x=>x.round===9).every(x=>x.court===1)&&moreBooked.matches.some(x=>x.round===9),'extra rounds require explicit court extension and respect other closing times');
+check(moreBooked.matches.filter(x=>x.round===9).every(x=>x.court===1)&&moreBooked.matches.some(x=>x.round===9),'extra rounds prefer extended court booking when provided');
 const extraAudit=await owner.request('/meets/'+extra.id+'/audit');
 check(extraAudit.some(x=>x.action==='extra-rounds'),'extra-round generation is audited');
 let anyPlayer=await owner.request('/clubs/'+club.id+'/meets','POST',input('rotating'));
@@ -150,6 +150,39 @@ check(anyPlayer.players[0].availableFromRound===5&&anyPlayer.matches.filter(x=>x
 anyPlayer=await owner.request('/meets/'+anyPlayer.id+'/matches/'+anyMatch.id+'/start','POST',{revision:anyPlayer.revision});
 anyPlayer=await owner.request('/meets/'+anyPlayer.id+'/matches/'+anyMatch.id+'/result','PUT',{revision:anyPlayer.revision,score:[4,1]});
 check(anyPlayer.matches.find(x=>x.id===anyMatch.id).status==='done','attendance override can start and complete via API');
+
+
+let manage=await owner.request('/clubs/'+club.id+'/meets','POST',input('rotating'));
+for(const action of ['generate-match','regenerate-all'])await member.request('/meets/'+manage.id+'/'+action,'POST',{revision:manage.revision,court:1,confirmed:true},403);
+const allBefore=JSON.stringify(manage.matches),beforeIds=new Set(manage.matches.map(x=>x.id));
+manage=await owner.request('/meets/'+manage.id+'/generate-match','POST',{revision:manage.revision,court:2});
+const quickAdded=manage.matches.find(x=>!beforeIds.has(x.id));
+check(quickAdded.court===2&&quickAdded.plannedStart===null&&JSON.stringify(manage.matches.filter(x=>beforeIds.has(x.id)))===allBefore,'quick generation adds exactly one match on selected court without retiming existing matches');
+await member.request('/meets/'+manage.id+'/matches/'+quickAdded.id+'/delete','POST',{revision:manage.revision,confirmed:true},403);
+await owner.request('/meets/'+manage.id+'/matches/'+quickAdded.id+'/delete','POST',{revision:manage.revision,confirmed:false},400);
+manage=await owner.request('/meets/'+manage.id+'/matches/'+quickAdded.id+'/delete','POST',{revision:manage.revision,confirmed:true});
+check(!manage.matches.some(x=>x.id===quickAdded.id),'upcoming match can be removed after confirmation');
+const restartId=manage.matches[0].id,statId=manage.matches[0].teams[0][0];
+manage=await owner.request('/meets/'+manage.id+'/matches/'+restartId+'/start','POST',{revision:manage.revision});
+manage=await owner.request('/meets/'+manage.id+'/matches/'+restartId+'/result','PUT',{revision:manage.revision,score:[4,1],stats:{[statId]:{winners:5,unforcedErrors:1}}});
+await member.request('/meets/'+manage.id+'/matches/'+restartId+'/restart','POST',{revision:manage.revision,confirmed:true},403);
+await owner.request('/meets/'+manage.id+'/matches/'+restartId+'/restart','POST',{revision:manage.revision,confirmed:false},400);
+const restartVersion=manage.revision;
+manage=await owner.request('/meets/'+manage.id+'/matches/'+restartId+'/restart','POST',{revision:manage.revision,confirmed:true});
+const restarted=manage.matches.find(x=>x.id===restartId);
+check(restarted.status==='ready'&&restarted.score===null&&restarted.startedAt===null&&restarted.endedAt===null&&Object.keys(restarted.stats).length===0,'restart clears result statistics and timer');
+await owner.request('/meets/'+manage.id+'/matches/'+restartId+'/delete','POST',{revision:restartVersion,confirmed:true},409);
+manage=await owner.request('/meets/'+manage.id+'/matches/'+restartId+'/start','POST',{revision:manage.revision});
+manage=await owner.request('/meets/'+manage.id+'/matches/'+restartId+'/delete','POST',{revision:manage.revision,confirmed:true});
+check(!manage.matches.some(x=>x.id===restartId),'live match deletion releases the assignment');
+const resultId=manage.matches[0].id;
+manage=await owner.request('/meets/'+manage.id+'/matches/'+resultId+'/result','PUT',{revision:manage.revision,score:[4,2]});
+const fullOldIds=new Set(manage.matches.map(x=>x.id));
+await owner.request('/meets/'+manage.id+'/regenerate-all','POST',{revision:manage.revision,confirmed:false},400);
+manage=await owner.request('/meets/'+manage.id+'/regenerate-all','POST',{revision:manage.revision,confirmed:true});
+check(manage.matches.every(x=>x.status==='ready'&&x.score===null&&Object.keys(x.stats).length===0&&!fullOldIds.has(x.id)),'confirmed full regeneration replaces completed and upcoming matches');
+const managementAudit=await owner.request('/meets/'+manage.id+'/audit');
+check(['generate-match','match-delete','match-restart','regenerate-all'].every(action=>managementAudit.some(a=>a.action===action)),'match management actions are audited');
 
 if(process.env.RALLY_TEST_ADMIN_DLL){
  // Elevated fixtures are allowed only against the dedicated local test database.

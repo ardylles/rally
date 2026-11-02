@@ -110,7 +110,7 @@ The prototype performs bounded deterministic search over full-capacity and reduc
 
 ## Implemented court windows — 2 November 2026
 
-Each named court can have its own availability interval within the session. Rounds start at the meet start and advance by the planned round length, including desired changeover allowance. A court is eligible only when the full slot fits its interval. Fairness is optimized over variable court capacity in all partner modes. Unavailable slots are excluded from unused-capacity counts. Current implementation supports one interval per court on the same calendar day and rejects rounds with no eligible court.
+Each named court can have its own availability interval within the session. Rounds start at the meet start and advance by the planned round length, including desired changeover allowance. Courts whose full estimated slot fits their interval are preferred. If no court covers the slot, registered courts remain usable with a timing warning. Fairness is optimized over variable court capacity in all partner modes. Unavailable slots are excluded from unused-capacity counts. Current implementation supports one interval per court on the same calendar day and warns rather than rejecting rounds outside booking windows.
 
 ## Early departures and remaining matches
 
@@ -132,4 +132,6 @@ Verification: 112 domain/configuration checks and 32 API/PostgreSQL checks passe
 
 See [attendance and side rules](11-attendance-sharing-administration.md). Late players accrue fairness only from arrival onward, using a virtual baseline rather than catch-up games. Left and Right are strict team constraints; Both is flexible. All four modes, substitutions and replacements enforce compatibility.
 
-Extra rounds append new assignments without regenerating existing rounds. Previous participation counts seed fairness; waiting and departed players stay excluded from automatic selection. Existing slot lengths remain fixed, and session/court extensions must be entered explicitly. See [extra-round controls](11-attendance-sharing-administration.md).
+Extra rounds append new assignments without regenerating existing rounds. Previous participation counts seed fairness; waiting and departed players stay excluded from automatic selection. Existing slot lengths remain fixed, and session/court estimates can be optionally extended; they do not block generation. See [extra-round controls](11-attendance-sharing-administration.md).
+
+[Flexible match management](12-flexible-match-management.md) adds one-match generation on a selected court and confirmed restart/delete/full-regeneration actions. Full regeneration replaces completed/live history in the active meet while retaining the previous audit snapshot.

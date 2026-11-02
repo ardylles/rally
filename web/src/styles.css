@@ -1933,3 +1933,20 @@ footer b {
     margin-left: auto;
   }
 }
+
+.match-management {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 10px;
+}
+.match-management .text-button {
+  min-height: 44px;
+}
+.compact-court .match-management {
+  border-top: 1px solid var(--line);
+  padding-top: 4px;
+}
+.error p {
+  margin-top: 8px;
+}

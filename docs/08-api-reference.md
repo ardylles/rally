@@ -92,3 +92,7 @@ Replacement input additionally accepts side (default both). User responses inclu
 POST /api/meets/{id}/extra-rounds: revision, count, optional durationMinutes and courtAvailability. Appends rounds without rebuilding existing matches. Existing slot length is preserved. Court closing times can be extended explicitly. Meet manager authorization and revision checks apply.
 
 Registered match substitutions accept waiting, late and departed players as a match-only attendance override. Strict sides, distinct participants and live-play collision checks remain enforced.
+
+## Flexible match controls
+
+See [match management API and confirmation rules](12-flexible-match-management.md). POST generate-match accepts revision and court; POST matches/{matchId}/restart, matches/{matchId}/delete and regenerate-all require revision and confirmed=true. All routes are scoped under /api/meets/{id} and require management permission. Booking times are advisory.

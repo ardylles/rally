@@ -62,8 +62,10 @@ The match substitution picker includes every registered player outside that matc
 
 Use **Extra rounds** on the court overview or Schedule to append more rounds, even after the original schedule has finished. Existing matches, IDs, scores, statistics, timers and substitutions remain unchanged. New rounds use the current round length, previous participation, fixed partners, playing sides and attendance.
 
-The form allows increasing the total session duration and extending individual court closing times. It never extends explicit bookings automatically; at least one court must cover each complete new round. Courts without individual bookings continue using the full session window. Earlier court closing times remain respected.
+The form allows increasing the total session duration and extending individual court closing times. It never extends explicit bookings automatically; booking times are advisory and do not block new rounds. Courts without individual bookings continue using the full session window. Earlier court closing times remain respected.
 
-Limits remain 20 total rounds, 480 session minutes, within one calendar day. Waiting players remain waiting when rounds are appended. An extension with no possible new match is rejected without changing the meet.
+Limits remain 20 total rounds, 480 session minutes, for the configured session (estimated matches may run later). Waiting players remain waiting when rounds are appended. An extension with no possible new match is rejected without changing the meet.
 
 API: POST /api/meets/{id}/extra-rounds accepts revision, count, optional durationMinutes and optional courtAvailability (same courts, names and opening times; closing times may only extend). It requires meet-organizer access, checks revision conflicts and records an extra-rounds audit event.
+
+See [flexible match management](12-flexible-match-management.md) for quick single-match generation, advisory booking times, restart/delete and confirmed full regeneration.
