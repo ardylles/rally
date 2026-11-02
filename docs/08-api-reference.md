@@ -88,3 +88,7 @@ Authenticated mutations require X-Rally-Request: 1.
 | GET | /api/admin/audit | Latest 100 administrative actions |
 
 Replacement input additionally accepts side (default both). User responses include isAdmin.
+
+POST /api/meets/{id}/extra-rounds: revision, count, optional durationMinutes and courtAvailability. Appends rounds without rebuilding existing matches. Existing slot length is preserved. Court closing times can be extended explicitly. Meet manager authorization and revision checks apply.
+
+Registered match substitutions accept waiting, late and departed players as a match-only attendance override. Strict sides, distinct participants and live-play collision checks remain enforced.

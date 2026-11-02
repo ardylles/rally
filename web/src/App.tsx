@@ -287,6 +287,8 @@ function Workspace() {
   );
   const [importIds, setImportIds] = useState<string[]>([]);
   const [playersText, setPlayersText] = useState("");
+  const [extraCount, setExtraCount] = useState(1);
+  const [extraDuration, setExtraDuration] = useState(120);
   const [draftStart, setDraftStart] = useState("16:00");
   const [draftDuration, setDraftDuration] = useState("120");
   const endMinute =
@@ -503,6 +505,17 @@ function Workspace() {
         String(kind === "settings" ? meet?.durationMinutes || 120 : 120),
       );
     }
+    if (kind === "extraRounds" && meet) {
+      setExtraCount(1);
+      setExtraDuration(
+        Math.max(
+          meet.durationMinutes,
+          (meet.rounds + 1) *
+            (meet.slotMinutes ||
+              Math.floor(meet.durationMinutes / meet.rounds)),
+        ),
+      );
+    }
     if (kind === "result") setStatsDraft({ ...match?.stats });
     setModal({ kind, match, player: p });
   }
@@ -617,6 +630,21 @@ function Workspace() {
           setView("overview");
           setModal(null);
           setToast("Your meet is ready.");
+        }
+      } else if (kind === "extraRounds") {
+        const oldRounds = meet!.rounds;
+        const updated = await change("/extra-rounds", {
+          count: extraCount,
+          durationMinutes: extraDuration,
+          courtAvailability: meet!.courtAvailability.map((c, i) => ({
+            ...c,
+            end: String(f.get("courtEnd-" + i)),
+          })),
+        });
+        if (updated) {
+          setRound(oldRounds);
+          setView("overview");
+          setToast("Extra rounds added. Existing matches are unchanged.");
         }
       } else if (kind === "arrival") {
         await change("/arrivals", {
@@ -1165,6 +1193,15 @@ function Workspace() {
                     <div>
                       <div className="section-title court-section-heading">
                         <h2>On the courts</h2>
+                        {canManage && (
+                          <Button
+                            disabled={busy || meet.rounds >= 20}
+                            onClick={() => open("extraRounds")}
+                          >
+                            <Plus size={15} />
+                            Extra rounds
+                          </Button>
+                        )}
                         <div className="round-controls">
                           <button
                             aria-label="Previous round"
@@ -1398,13 +1435,22 @@ function Workspace() {
                   <div className="section-title">
                     <h2>Your court rotation</h2>
                     {canManage && (
-                      <Button
-                        disabled={busy || !canRegenerateRemaining}
-                        onClick={() => open("regenerateRemaining")}
-                      >
-                        <RefreshCw size={14} />
-                        Regenerate remaining
-                      </Button>
+                      <div className="row-actions">
+                        <Button
+                          disabled={busy || meet.rounds >= 20}
+                          onClick={() => open("extraRounds")}
+                        >
+                          <Plus size={15} />
+                          Extra rounds
+                        </Button>
+                        <Button
+                          disabled={busy || !canRegenerateRemaining}
+                          onClick={() => open("regenerateRemaining")}
+                        >
+                          <RefreshCw size={14} />
+                          Regenerate remaining
+                        </Button>
+                      </div>
                     )}
                   </div>
                   <div className="hint">
@@ -1755,6 +1801,7 @@ function Workspace() {
               arrival: "Late player / arrival",
               side: "Playing side",
               regenerateRemaining: "Regenerate remaining matches",
+              extraRounds: "Generate extra rounds",
               pairs: "Choose fixed partners",
               skill: "Edit player skill",
               organizers: "Assign meet organizers",
@@ -1769,15 +1816,20 @@ function Workspace() {
           busy={busy}
           readOnly={modal.kind === "result" && !canManage}
           label={
-            ["departure", "regenerateRemaining", "arrival", "side"].includes(
-              modal.kind,
-            )
-              ? "Save & regenerate remaining"
-              : ["pairs", "settings"].includes(modal.kind)
-                ? "Save & generate"
-                : modal.kind === "create"
-                  ? "Create meet"
-                  : "Save"
+            modal.kind === "extraRounds"
+              ? "Generate extra rounds"
+              : [
+                    "departure",
+                    "regenerateRemaining",
+                    "arrival",
+                    "side",
+                  ].includes(modal.kind)
+                ? "Save & regenerate remaining"
+                : ["pairs", "settings"].includes(modal.kind)
+                  ? "Save & generate"
+                  : modal.kind === "create"
+                    ? "Create meet"
+                    : "Save"
           }
         >
           {error && (
@@ -1846,6 +1898,88 @@ function Workspace() {
                 </p>
               </div>
             )}
+          {modal.kind === "extraRounds" && meet && (
+            <>
+              <p className="hint">
+                Append rounds after round {meet.rounds}. Existing matches,
+                substitutions, scores and timers stay unchanged. New matches use
+                previous participation, playing sides and attendance.
+              </p>
+              <div className="fields">
+                <Field label="Extra rounds">
+                  <input
+                    type="number"
+                    min="1"
+                    max={20 - meet.rounds}
+                    required
+                    value={extraCount}
+                    onChange={(e) => {
+                      const count = Number(e.target.value);
+                      setExtraCount(count);
+                      setExtraDuration(
+                        Math.max(
+                          meet.durationMinutes,
+                          (meet.rounds + count) *
+                            (meet.slotMinutes ||
+                              Math.floor(meet.durationMinutes / meet.rounds)),
+                        ),
+                      );
+                    }}
+                  />
+                </Field>
+                <Field label="Total session minutes">
+                  <input
+                    type="number"
+                    required
+                    min={meet.durationMinutes}
+                    max="480"
+                    value={extraDuration}
+                    onChange={(e) => setExtraDuration(Number(e.target.value))}
+                  />
+                </Field>
+              </div>
+              <p className="subtle">
+                {meet.slotMinutes ||
+                  Math.floor(meet.durationMinutes / meet.rounds)}{" "}
+                minutes per round · {meet.rounds + extraCount} rounds in total.
+                Extend the session and relevant court bookings if needed;
+                existing round times will not move.
+              </p>
+              {meet.courtAvailability.length > 0 ? (
+                <>
+                  <h3 className="spaced-title">Court closing times</h3>
+                  <p className="subtle">
+                    Keep courts that close early unchanged. At least one court
+                    must cover each complete extra round. Only extend a booking
+                    if the court is available.
+                  </p>
+                  <div className="fields">
+                    {meet.courtAvailability.map((c, i) => (
+                      <Field key={i} label={c.name + " · opens " + c.start}>
+                        <input
+                          name={"courtEnd-" + i}
+                          type="time"
+                          required
+                          min={c.end}
+                          defaultValue={c.end}
+                        />
+                      </Field>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="hint">
+                  All courts use the full session window, including any
+                  extension you enter above.
+                </p>
+              )}
+              <p className="subtle">
+                Players marked waiting or departed stay out of automatic extra
+                rounds. Limits: 20 total rounds, 480 minutes, within the same
+                day.
+              </p>
+            </>
+          )}
           {modal.kind === "arrival" && meet && (
             <>
               <p className="hint">
@@ -2186,7 +2320,8 @@ function Workspace() {
                 Round {modal.match.round + 1} · Court {modal.match.court}.
                 Choose any registered player outside this match. Other
                 assignments are unchanged; starting the match still requires
-                free players and court.
+                free players and court. Late or departed players can be selected
+                for this match only. Strict Left/Right pairing still applies.
               </div>
               <Field label="Player being replaced">
                 <select name="outgoing">
@@ -2203,14 +2338,13 @@ function Workspace() {
                     Choose a player
                   </option>
                   {meet!.players
-                    .filter(
-                      (p) =>
-                        isAvailable(p, modal.match!.round) &&
-                        !modal.match!.teams.flat().includes(p.id),
-                    )
+                    .filter((p) => !modal.match!.teams.flat().includes(p.id))
                     .map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name}
+                        {!isAvailable(p, modal.match!.round)
+                          ? " · attendance override"
+                          : ""}
                       </option>
                     ))}
                 </select>

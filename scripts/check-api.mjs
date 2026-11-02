@@ -125,6 +125,32 @@ check(share.path!==publicPath,'reset revokes old link and creates usable new lin
 await owner.request('/admin/users','GET',undefined,403);await owner.request('/admin/meets/'+arrival.id,'DELETE',undefined,403);
 check(true,'club organizer has no application administrator privilege');
 
+
+let extra=await owner.request('/clubs/'+club.id+'/meets','POST',input('rotating'));
+await member.request('/meets/'+extra.id+'/extra-rounds','POST',{revision:extra.revision,count:1,durationMinutes:144},403);
+const existingMatches=JSON.stringify(extra.matches),extraVersion=extra.revision;
+extra=await owner.request('/meets/'+extra.id+'/extra-rounds','POST',{revision:extra.revision,count:1,durationMinutes:144});
+check(extra.rounds===6&&extra.matches.some(x=>x.round===5)&&JSON.stringify(extra.matches.filter(x=>x.round<5))===existingMatches,'extra rounds append without changing previous assignments');
+await owner.request('/meets/'+extra.id+'/extra-rounds','POST',{revision:extraVersion,count:1,durationMinutes:168},409);
+check((await owner.request('/meets/'+extra.id)).rounds===6,'extra rounds persist and reject stale requests');
+await owner.request('/meets/'+extra.id+'/extra-rounds','POST',{revision:extra.revision,count:0},400);
+await owner.request('/meets/'+extra.id+'/extra-rounds','POST',{revision:extra.revision,count:1},400);
+check((await owner.request('/meets/'+extra.id)).rounds===6,'invalid extra rounds do not alter schedule');
+await owner.request('/meets/'+booked.id+'/extra-rounds','POST',{revision:booked.revision,count:1,durationMinutes:200},400);
+let moreBooked=await owner.request('/meets/'+booked.id+'/extra-rounds','POST',{revision:booked.revision,count:1,durationMinutes:200,courtAvailability:booked.courtAvailability.map((c,i)=>({...c,end:i===0?'21:20':c.end}))});
+check(moreBooked.matches.filter(x=>x.round===9).every(x=>x.court===1)&&moreBooked.matches.some(x=>x.round===9),'extra rounds require explicit court extension and respect other closing times');
+const extraAudit=await owner.request('/meets/'+extra.id+'/audit');
+check(extraAudit.some(x=>x.action==='extra-rounds'),'extra-round generation is audited');
+let anyPlayer=await owner.request('/clubs/'+club.id+'/meets','POST',input('rotating'));
+anyPlayer=await owner.request('/meets/'+anyPlayer.id+'/arrivals','POST',{revision:anyPlayer.revision,playerId:'p0',fromRound:anyPlayer.rounds});
+const anyMatch=anyPlayer.matches[0];
+anyPlayer=await owner.request('/meets/'+anyPlayer.id+'/matches/'+anyMatch.id+'/substitute','POST',{revision:anyPlayer.revision,outgoingId:anyMatch.teams[0][0],incomingId:'p0'});
+anyPlayer=await owner.request('/meets/'+anyPlayer.id+'/regenerate-remaining','POST',{revision:anyPlayer.revision});
+check(anyPlayer.players[0].availableFromRound===5&&anyPlayer.matches.filter(x=>x.teams.flat().includes('p0')).length===1,'late registered player can substitute for one match and survives regeneration');
+anyPlayer=await owner.request('/meets/'+anyPlayer.id+'/matches/'+anyMatch.id+'/start','POST',{revision:anyPlayer.revision});
+anyPlayer=await owner.request('/meets/'+anyPlayer.id+'/matches/'+anyMatch.id+'/result','PUT',{revision:anyPlayer.revision,score:[4,1]});
+check(anyPlayer.matches.find(x=>x.id===anyMatch.id).status==='done','attendance override can start and complete via API');
+
 if(process.env.RALLY_TEST_ADMIN_DLL){
  // Elevated fixtures are allowed only against the dedicated local test database.
  assert.equal(new URL(base).hostname,'127.0.0.1');

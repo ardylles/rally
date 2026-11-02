@@ -4,7 +4,7 @@
 
 In Players, choose **Late / arrival** before the player starts playing. **Waiting for arrival** removes that player from unstarted assignments. When they arrive, select the current or a future round and save to rebuild the remaining schedule. Departure remains available separately.
 
-Arrival cannot be moved before the current scheduling frontier or changed after that player has started or completed a match. Completed matches, live matches, scores, timers and statistics are preserved. Eligible explicit substitutions remain pinned; assignments that violate attendance or strict sides are rebuilt.
+Arrival cannot be moved before the current scheduling frontier or changed after that player has started or completed a match. Completed matches, live matches, scores, timers and statistics are preserved. Eligible explicit substitutions remain pinned; assignments that violate strict sides are rebuilt. Explicit registered substitutions are match-only attendance overrides.
 
 Late players receive a fair share only from arrival onward. Scheduling replays prior rounds and gives a newcomer the active players’ average virtual game count at arrival. Missed rounds create no catch-up debt. Actual totals remain unchanged in history. Fairness is a bounded heuristic under court bookings, fixed pairs, sides and attendance, rather than a guarantee of equal totals across different attendance periods.
 
@@ -55,3 +55,15 @@ Database migration 2 adds public tokens, admin/disabled flags, session versions,
 Domain checks cover all four meet modes, arrival fairness, preserved history, strict sides, substitutions, replacements, flexible-player capacity and restoration of empty schedules. API checks cover persistence, authorization, token reset/revocation and administration.
 
 The optional administrator integration fixture is enabled through RALLY_TEST_ADMIN_DLL and requires the dedicated local database rally_features_20261102 and loopback URL. It creates disposable accounts and bootstraps only a test administrator. Production account credentials are not needed.
+
+## Match substitutions and extra rounds
+
+The match substitution picker includes every registered player outside that match, including busy, waiting, late and departed players. A manual registered substitution overrides attendance for that match only. It does not change arrival/departure dates or automatically add the player to other rounds. Regeneration retains the explicit substitution. Teams must still respect strict Left/Right restrictions, and starting a match still checks that players and the court are not already in a live match.
+
+Use **Extra rounds** on the court overview or Schedule to append more rounds, even after the original schedule has finished. Existing matches, IDs, scores, statistics, timers and substitutions remain unchanged. New rounds use the current round length, previous participation, fixed partners, playing sides and attendance.
+
+The form allows increasing the total session duration and extending individual court closing times. It never extends explicit bookings automatically; at least one court must cover each complete new round. Courts without individual bookings continue using the full session window. Earlier court closing times remain respected.
+
+Limits remain 20 total rounds, 480 session minutes, within one calendar day. Waiting players remain waiting when rounds are appended. An extension with no possible new match is rejected without changing the meet.
+
+API: POST /api/meets/{id}/extra-rounds accepts revision, count, optional durationMinutes and optional courtAvailability (same courts, names and opening times; closing times may only extend). It requires meet-organizer access, checks revision conflicts and records an extra-rounds audit event.

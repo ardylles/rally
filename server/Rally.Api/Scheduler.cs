@@ -9,9 +9,34 @@ public static class Scheduler {
   MeetRules.Require(m.Matches.Any(x=>x.Status=="ready"&&x.Round>=from)||m.Matches.Count==0||from<m.Rounds-1,"No unstarted matches remain to regenerate.");
   CourtPlanning.Validate(m);
   // History and explicit substitutions are pinned; a departure invalidates only unstarted assignments.
-  var pinned=m.Matches.Where(x=>x.Status!="ready"||(x.Round<from&&x.Teams.SelectMany(t=>t).All(id=>MeetRules.Available(m.Players.Single(p=>p.Id==id),x.Round)))||
-   (x.Changes.Count>0&&x.Teams.All(t=>MeetRules.CompatibleTeam(m,t))&&x.Teams.SelectMany(t=>t).All(id=>MeetRules.Available(m.Players.Single(p=>p.Id==id),x.Round)))).ToList();
+  var pinned=m.Matches.Where(x=>x.Status!="ready"||(x.Round<from&&x.Teams.SelectMany(t=>t).All(id=>MeetRules.AvailableForMatch(m.Players.Single(p=>p.Id==id),x)))||
+   (x.Changes.Count>0&&x.Teams.All(t=>MeetRules.CompatibleTeam(m,t))&&x.Teams.SelectMany(t=>t).All(id=>MeetRules.AvailableForMatch(m.Players.Single(p=>p.Id==id),x)))).ToList();
   Build(m,from,pinned,seed);
+ }
+ public static Meet AddRounds(Meet original,ExtraRoundsInput input,int seed=91) {
+  MeetRules.Require(input.Count>=1&&input.Count<=20-original.Rounds,"Add at least one round, up to 20 rounds in total.");
+  // Work on a copy: rejected extensions leave the current meet and its history untouched.
+  var m=System.Text.Json.JsonSerializer.Deserialize<Meet>(System.Text.Json.JsonSerializer.Serialize(original,Json.Options),Json.Options)!;
+  int from=m.Rounds;int slot=CourtPlanning.Slot(m);
+  m.SlotMinutes=slot;m.Rounds+=input.Count;
+  m.DurationMinutes=input.DurationMinutes??m.DurationMinutes;
+  MeetRules.Require(m.DurationMinutes>=original.DurationMinutes&&m.DurationMinutes<=480,"Keep or extend the session duration, up to 480 minutes.");
+  if(input.CourtAvailability!=null) {
+   MeetRules.Require(input.CourtAvailability.Count==original.CourtAvailability.Count,"Keep the existing courts when adding rounds.");
+   m.CourtAvailability=input.CourtAvailability.Select(c=>new CourtWindow{Name=c.Name,Start=c.Start,End=c.End}).ToList();
+  }
+  CourtPlanning.Validate(m);
+  for(int i=0;i<original.CourtAvailability.Count;i++) {
+   var old=original.CourtAvailability[i];var updated=m.CourtAvailability[i];
+   MeetRules.Require(updated.Name==old.Name&&updated.Start==old.Start&&CourtPlanning.Minute(updated.End)>=CourtPlanning.Minute(old.End),"Only extend court closing times when adding rounds; existing bookings must stay intact.");
+  }
+  // The old rounds value means waiting, not an automatic arrival at the new first round.
+  foreach(var p in m.Players.Where(p=>p.AvailableFromRound>=from))p.AvailableFromRound=m.Rounds;
+  var previousNotes=m.SchedulingNotes.ToList();
+  Build(m,from,m.Matches.ToList(),seed);
+  MeetRules.Require(m.Matches.Any(x=>x.Round>=from),"No extra matches can be arranged with the available players and playing sides.");
+  m.SchedulingNotes=previousNotes.Concat(m.SchedulingNotes).Distinct().ToList();
+  return m;
  }
  private static void Build(Meet m,int from,List<Match> pinned,int seed) {
   var rng=new Random(seed);var n=m.Players.Count;

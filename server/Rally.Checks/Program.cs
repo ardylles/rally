@@ -106,7 +106,8 @@ foreach(var mode in new[]{"rotating","balanced","fixed","mixed"}) {
  Check(departure.Matches.GroupBy(x=>x.Round).All(g=>g.SelectMany(x=>x.Teams.SelectMany(t=>t)).Distinct().Count()==g.Count()*4),mode+" remaining schedule no player duplicates");
  Check(departure.Matches.GroupBy(x=>new{x.Round,x.Court}).All(g=>g.Count()==1),mode+" remaining schedule no court duplicates");
  var ready=departure.Matches.First(x=>x.Status=="ready"&&x.Round>=1);
- Reject(()=>MeetRules.Substitute(departure,ready,new(0,ready.Teams[0][0],leaving)),mode+" departed player cannot substitute");
+ MeetRules.Substitute(departure,ready,new(0,ready.Teams[0][0],leaving));
+ Check(ready.Teams.SelectMany(t=>t).Contains(leaving),mode+" departed player can be explicitly substituted");
  Reject(()=>MeetRules.Depart(departure,new(0,leaving,0)),mode+" departure cannot rewrite past round");
  if(mode=="fixed"){
   var partner=departure.FixedPairs.Single(t=>t.Contains(leaving)).Single(id=>id!=leaving);
@@ -183,4 +184,40 @@ Check(sideCapacity.Matches.Count==8,"flexible players preserve maximum compatibl
 var singleRoundArrival=Example(4,1,1,"rotating");Scheduler.Generate(singleRoundArrival);
 MeetRules.Arrival(singleRoundArrival,new(0,"p0",1));MeetRules.Arrival(singleRoundArrival,new(0,"p0",0));
 Check(singleRoundArrival.Matches.Count==1,"arrival restores an empty single-round meet");
+foreach(var mode in new[]{"rotating","balanced","fixed","mixed"}) {
+ var original=Example(12,2,4,mode,2);Scheduler.Generate(original);
+ MeetRules.Result(original,original.Matches[0],new(0,[4,1],null));
+ MeetRules.Start(original,original.Matches[1]);
+ var snapshot=original.Matches.ToDictionary(x=>x.Id,x=>JsonSerializer.Serialize(x));
+ var extended=Scheduler.AddRounds(original,new(0,2,180));
+ Check(extended.Rounds==6&&extended.SlotMinutes==30&&extended.DurationMinutes==180,mode+" append rounds freezes existing slot length");
+ Check(snapshot.All(kv=>extended.Matches.Any(x=>x.Id==kv.Key&&JsonSerializer.Serialize(x)==kv.Value)),mode+" extra rounds preserve all existing matches exactly");
+ Check(extended.Matches.Any(x=>x.Round>=4)&&extended.Matches.Where(x=>x.Round>=4).All(x=>x.Status=="ready"),mode+" extra rounds create unstarted matches");
+ Check(extended.Matches.GroupBy(x=>x.Round).All(g=>g.SelectMany(x=>x.Teams.SelectMany(t=>t)).Distinct().Count()==4*g.Count()),mode+" extra rounds avoid duplicate player assignments");
+ Check(original.Rounds==4&&original.DurationMinutes==120,mode+" extension does not mutate original aggregate");
+}
+var absentSub=Example(8,1,4,"rotating");Scheduler.Generate(absentSub);
+MeetRules.Arrival(absentSub,new(0,"p0",4));
+var substituteMatch=absentSub.Matches[0];MeetRules.Substitute(absentSub,substituteMatch,new(0,substituteMatch.Teams[0][0],"p0"));
+var manualJson=JsonSerializer.Serialize(substituteMatch);Scheduler.RegenerateRemaining(absentSub);
+Check(absentSub.Matches.Any(x=>x.Id==substituteMatch.Id&&JsonSerializer.Serialize(x)==manualJson),"regeneration preserves explicit late-player match substitution");
+Check(absentSub.Matches.Count(x=>x.Teams.SelectMany(t=>t).Contains("p0"))==1&&absentSub.Players[0].AvailableFromRound==4,"manual substitution never changes other attendance");
+var subPersisted=absentSub.Matches.Single(x=>x.Id==substituteMatch.Id);MeetRules.Start(absentSub,subPersisted);MeetRules.Result(absentSub,subPersisted,new(0,[4,2],null));
+Check(subPersisted.Status=="done","late-player substitution can start and save result");
+var extendedAbsent=Scheduler.AddRounds(absentSub,new(0,1,150));
+Check(extendedAbsent.Players[0].AvailableFromRound==5&&extendedAbsent.Matches.Where(x=>x.Round==4).All(x=>!x.Teams.SelectMany(t=>t).Contains("p0")),"waiting players do not automatically arrive in appended rounds");
+var bookedExtra=Example(8,2,4,"rotating");bookedExtra.SlotMinutes=20;bookedExtra.CourtAvailability=[new(){Name="A",Start="16:00",End="18:00"},new(){Name="B",Start="16:00",End="17:20"}];Scheduler.Generate(bookedExtra);
+var spare=Scheduler.AddRounds(bookedExtra,new(0,2));
+Check(spare.Matches.Where(x=>x.Round>=4).All(x=>x.Court==1)&&spare.DurationMinutes==120,"extra rounds use spare session time and honor early court closing");
+var beforeReject=JsonSerializer.Serialize(spare);
+Reject(()=>Scheduler.AddRounds(spare,new(0,1,140)),"extra rounds reject unextended court bookings");
+Check(JsonSerializer.Serialize(spare)==beforeReject,"rejected extension leaves meet unchanged");
+var longer=Scheduler.AddRounds(spare,new(0,1,140,[new(){Name="A",Start="16:00",End="18:20"},new(){Name="B",Start="16:00",End="17:20"}]));
+Check(longer.Matches.Any(x=>x.Round==6&&x.PlannedStart=="18:00"&&x.PlannedEnd=="18:20"),"explicit court extension enables later round");
+Reject(()=>Scheduler.AddRounds(longer,new(0,0)),"reject zero extra rounds");
+Reject(()=>Scheduler.AddRounds(longer,new(0,20)),"reject exceeding total round limit");
+var completeExtra=Example(4,1,2,"rotating");Scheduler.Generate(completeExtra);foreach(var match in completeExtra.Matches)MeetRules.Result(completeExtra,match,new(0,[4,0],null));
+Check(Scheduler.AddRounds(completeExtra,new(0,1,180)).Matches.Count==3,"completed meet can append extra rounds");
+var allGone=Example(4,1,2,"rotating");Scheduler.Generate(allGone);MeetRules.Depart(allGone,new(0,"p0",0));
+Reject(()=>Scheduler.AddRounds(allGone,new(0,1,180)),"empty extra schedule reports insufficient players");
 Console.WriteLine($"All {checks} checks passed.");

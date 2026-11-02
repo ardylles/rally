@@ -75,3 +75,5 @@ public sealed record ArrivalInput(int Revision, string PlayerId, int FromRound);
 public sealed record SideInput(int Revision, string PlayerId, string Side);
 public sealed record SharingInput(int Revision, bool Enabled, bool Reset = false);
 public sealed record AdminUserInput(bool Disabled);
+
+public sealed record ExtraRoundsInput(int Revision, int Count, int? DurationMinutes = null, List<CourtWindow>? CourtAvailability = null);

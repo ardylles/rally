@@ -48,6 +48,9 @@ public static class MeetRules {
   Scheduler.RegenerateRemaining(m);
  }
  public static bool Available(Player p,int round)=>round>=p.AvailableFromRound&&(p.UnavailableFromRound is not int from || round<from);
+ // Explicit registered substitutions override attendance for this match only.
+ public static bool AvailableForMatch(Player p,Match match)=>Available(p,match.Round)||
+  match.Changes.LastOrDefault(c=>c.IncomingId==p.Id||c.OutgoingId==p.Id) is { Source:"match" } change&&change.IncomingId==p.Id;
  public static void Depart(Meet m,DepartureInput input) {
   var p=m.Players.FirstOrDefault(p=>p.Id==input.PlayerId)??throw new RuleException("Player not found.",404);
   Require(input.FromRound>=RemainingRound(m)&&input.FromRound<m.Rounds,"Choose the current or a future round within this meet.");
@@ -64,12 +67,12 @@ public static class MeetRules {
   Require(match.Status=="ready","This match has already finished.");
   Require(match.Teams.All(t=>CompatibleTeam(m,t)),"A team has incompatible playing sides. Regenerate remaining matches.");
   var ids=match.Teams.SelectMany(t=>t).ToHashSet();
-  Require(m.Players.Where(p=>ids.Contains(p.Id)).All(p=>Available(p,match.Round)),"A player is not available in this round. Regenerate remaining matches.");
+  Require(m.Players.Where(p=>ids.Contains(p.Id)).All(p=>AvailableForMatch(p,match)),"A player is not available in this round. Regenerate remaining matches.");
   Require(!m.Matches.Any(x=>x.Id!=match.Id&&x.Status=="live"&&(x.Court==match.Court||x.Teams.SelectMany(t=>t).Any(ids.Contains))),"A player or this court is still in a live match.",409);
   match.Status="live"; match.StartedAt=DateTimeOffset.UtcNow;
  }
  public static void Result(Meet m,Match match,ResultInput input) {
-  if(match.Status=="ready") { Require(match.Teams.SelectMany(t=>t).All(id=>Available(m.Players.Single(p=>p.Id==id),match.Round)),"A player is not available for this round."); Require(match.Teams.All(t=>CompatibleTeam(m,t)),"A team has incompatible playing sides."); }
+  if(match.Status=="ready") { Require(match.Teams.SelectMany(t=>t).All(id=>AvailableForMatch(m.Players.Single(p=>p.Id==id),match)),"A player is not available for this round."); Require(match.Teams.All(t=>CompatibleTeam(m,t)),"A team has incompatible playing sides."); }
   Require(input.Score is {Length:2},"Enter both game totals.");
   var target=Target(match.Format);
   Require(input.Score.All(n=>n>=0&&n<=target)&&input.Score.Max()==target&&input.Score[0]!=input.Score[1],"One team must reach the target and the other must be below it.");
@@ -84,7 +87,6 @@ public static class MeetRules {
   Require(match.Teams.SelectMany(t=>t).Contains(input.OutgoingId),"Choose an outgoing player from this match.");
   Require(m.Players.Any(p=>p.Id==input.IncomingId),"Choose a registered player from this meet.");
   Require(!match.Teams.SelectMany(t=>t).Contains(input.IncomingId),"That player is already in this match.");
-  Require(Available(m.Players.Single(p=>p.Id==input.IncomingId),match.Round),"This player has left the meet before this round.");
   Require(match.Teams.Select(t=>t.Select(id=>id==input.OutgoingId?input.IncomingId:id).ToArray()).All(t=>CompatibleTeam(m,t)),"The substitute’s side conflicts with their partner.");
   Replace(m,match,input.OutgoingId,input.IncomingId,"one","match");
  }
