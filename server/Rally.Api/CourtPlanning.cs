@@ -20,7 +20,8 @@ public static class CourtPlanning {
    MeetRules.Require(court!=null&&!string.IsNullOrWhiteSpace(court.Name)&&court.Name.Trim().Length<=60,"Each court needs a name of up to 60 characters.");
    court!.Name=court.Name.Trim();
    MeetRules.Require(TimeOnly.TryParseExact(court.Start,"HH:mm",out _)&&TimeOnly.TryParseExact(court.End,"HH:mm",out _),"Enter valid court opening and closing times.");
-   MeetRules.Require(Minute(court.Start)>=start&&Minute(court.End)<=end&&Minute(court.Start)<Minute(court.End),"Court availability must be a positive interval inside the session.");
+   MeetRules.Require(Minute(court.Start)<Minute(court.End),$"{court.Name}: end time {court.End} must be later than start time {court.Start}.");
+   MeetRules.Require(Minute(court.Start)>=start&&Minute(court.End)<=end,$"{court.Name} ({court.Start}–{court.End}) falls outside the session {m.Time}–{Clock(end)} ({m.DurationMinutes} minutes). Adjust the session start time or duration, or this court’s booking times.");
   }
   MeetRules.Require(m.CourtAvailability.Select(c=>c.Name.ToUpperInvariant()).Distinct().Count()==m.CourtAvailability.Count,"Court names must be unique.");
   MeetRules.Require(Enumerable.Range(0,m.Rounds).All(r=>Available(m,r).Count>0),"At least one court must cover each complete round. Adjust the booking windows, rounds or round length.");

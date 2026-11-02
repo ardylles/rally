@@ -59,3 +59,32 @@ Roster IDs are meet-local. They do not establish account ownership. Server autho
 Create/update meet accepts `slotMinutes` (5–120; zero uses legacy auto length) and `courtAvailability`: an array of `{name,start,end}` with HH:mm local times. Array order defines 1-based court numbers. Supply one entry per court or an empty array for full-session availability. All windows must fit the same calendar-day session; every round needs at least one eligible court. Generated matches expose `plannedStart` and `plannedEnd` in the meet timezone. Existing records can have null planned times until regenerated.
 
 `POST /api/clubs/{club}/reclub/preview` requires a club organizer and the normal mutation header. Body: `{ "url": "https://reclub.co/m/PATO94" }`. Response: `{url,name,players:[{id,name,status}]}`. Preview does not save a roster. The client reviews entries before copying selected names into a new meet draft. Status 1 is confirmed; other codes are not selected automatically. Failures: invalid URL 400, unauthenticated/unauthorized 401/403, unsupported page data 422, upstream failure 502, timeout 504, rate limit 429.
+
+## Departures and remaining regeneration
+
+Both endpoints require a club organizer or assigned meet organizer and the current revision.
+
+- POST /api/meets/{id}/departures: {revision, playerId, fromRound}. fromRound is zero-based and must be the current or a future round inside the meet. Saves the player's unavailableFromRound and regenerated schedule in one revision, audited as player-departure.
+- POST /api/meets/{id}/regenerate-remaining: {revision}. Preserves history and eligible substitutions, then rebuilds remaining assignments. Audited as regenerate-remaining.
+
+Players expose nullable unavailableFromRound, availableFromRound (default zero), and matchOnlyReplacement (default false). Meets expose schedulingNotes for insufficient players or fixed-pair constraints. These fields are stored in the existing JSONB aggregate; no relational migration is needed. The original generate endpoint remains a before-play operation and rejects departure-bearing rosters. Stale requests return 409 without changing persisted state.
+
+## Attendance, sides, sharing and administration
+
+Authenticated mutations require X-Rally-Request: 1.
+
+| Method | Route | Body / behavior |
+| --- | --- | --- |
+| POST | /api/meets/{id}/arrivals | revision, playerId, fromRound (zero-based; rounds means waiting) |
+| PUT | /api/meets/{id}/sides | revision, playerId, side: left/right/both |
+| GET | /api/meets/{id}/sharing | Manager-only enabled flag and relative public path |
+| PUT | /api/meets/{id}/sharing | revision, enabled, optional reset |
+| GET | /api/public/{token} | No login; explicit read-only projection; 404 if revoked |
+| GET | /api/admin/users | Application administrator only |
+| PUT | /api/admin/users/{id} | disabled boolean; invalidates sessions |
+| DELETE | /api/admin/users/{id} | Deletes account; retains named participant history |
+| GET | /api/admin/meets | All meet names and clubs for administration |
+| DELETE | /api/admin/meets/{id} | Deletes meet and match audit; retains admin audit |
+| GET | /api/admin/audit | Latest 100 administrative actions |
+
+Replacement input additionally accepts side (default both). User responses include isAdmin.

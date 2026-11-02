@@ -111,3 +111,23 @@ The prototype performs bounded deterministic search over full-capacity and reduc
 ## Implemented court windows — 2 November 2026
 
 Each named court can have its own availability interval within the session. Rounds start at the meet start and advance by the planned round length, including desired changeover allowance. A court is eligible only when the full slot fits its interval. Fairness is optimized over variable court capacity in all partner modes. Unavailable slots are excluded from unused-capacity counts. Current implementation supports one interval per court on the same calendar day and rejects rounds with no eligible court.
+
+## Early departures and remaining matches
+
+In Players, choose **Leave early**, select the first round the player will miss, and save. The same action records availability and regenerates the remaining schedule atomically. Scheduled departures can be edited from the same row. Players remain in the roster so past participation and statistics are retained.
+
+Schedule also provides **Regenerate remaining**. The boundary is the latest round containing a started or completed match, or round 1 before play begins. Ready matches in earlier rounds are kept; completed/live matches are always kept exactly. Eligible explicit substitutions stay pinned. An unstarted substituted match involving a departing player is rebuilt, with its prior assignment retained in the meet audit snapshot.
+
+Regeneration seeds player counts and partner/opponent history from preserved matches. Departed players are excluded from future allocation; court windows and meet format still apply. Match counts can differ because of different attendance windows. If too few eligible players remain, no invalid matches are created and the UI explains empty rounds.
+
+- Fixed mode: an incomplete pair sits out. Add a new player from Players with **remaining meet** scope to restore the pair.
+- Mixed mode: after a fixed partner leaves, the remaining partner enters the rotating pool.
+- A new player added for one match remains limited to that match during regeneration.
+- Live matches may finish after a departure is recorded; starting an unstarted match with an unavailable player is rejected.
+- Previously recorded substitutions and replacements remain visible in preserved matches and audit snapshots.
+
+Verification: 112 domain/configuration checks and 32 API/PostgreSQL checks passed, including all four modes, live/completed history preservation, court windows, one-match replacements, fixed-pair recovery, permissions and concurrent-edit protection.
+
+## Late arrivals and strict sides
+
+See [attendance and side rules](11-attendance-sharing-administration.md). Late players accrue fairness only from arrival onward, using a virtual baseline rather than catch-up games. Left and Right are strict team constraints; Both is flexible. All four modes, substitutions and replacements enforce compatibility.

@@ -74,3 +74,5 @@ In these documents, a **match** is one doubles contest; a **game** is a scoring 
 - Reclub roster import will scrape the Reclub webpage supplied by the organizer. The supplied sample is supported through a reviewed roster preview in Create meet. Manual roster entry must remain usable independently.
 
 Defaults in the documents are proposals, not decisions already confirmed by the product owner.
+
+Attendance, strict Left/Right/Both sides, public match links and application administration are documented in [the feature guide](docs/11-attendance-sharing-administration.md), including the one-time administrator provisioning command.

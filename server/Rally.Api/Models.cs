@@ -18,17 +18,23 @@ public sealed class Meet {
  public int Rounds { get; set; } = 5;
  public string Mode { get; set; } = "rotating";
  public string Format { get; set; } = "4";
+ public bool PublicEnabled { get; set; }
  public bool Timing { get; set; } = true;
  public List<Player> Players { get; set; } = [];
  public List<string[]> FixedPairs { get; set; } = [];
  public List<Match> Matches { get; set; } = [];
+ public List<string> SchedulingNotes { get; set; } = [];
  public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 public sealed class Player {
  public string Id { get; set; } = Guid.NewGuid().ToString("N");
  public string Name { get; set; } = "";
+ public string Side { get; set; } = "both";
  public double? Skill { get; set; }
  public string? UserId { get; set; }
+ public int? UnavailableFromRound { get; set; }
+ public int AvailableFromRound { get; set; }
+ public bool MatchOnlyReplacement { get; set; }
 }
 public sealed class Match {
  public string Id { get; set; } = Guid.NewGuid().ToString("N");
@@ -56,9 +62,16 @@ public sealed record PairInput(int Revision, List<string[]> Pairs);
 public sealed record SkillInput(int Revision, string PlayerId, double Skill);
 public sealed record ResultInput(int Revision, int[] Score, Dictionary<string, PlayerStats>? Stats);
 public sealed record SubstituteInput(int Revision, string OutgoingId, string IncomingId);
-public sealed record ReplacementInput(int Revision, string OutgoingId, string Name, double? Skill, string Scope);
+public sealed record ReplacementInput(int Revision, string OutgoingId, string Name, double? Skill, string Scope, string Side = "both");
 public sealed record OrganizerInput(List<string> UserIds);
-public sealed record UserInfo(string Id, string Name, string Email);
+public sealed record UserInfo(string Id, string Name, string Email, bool IsAdmin = false);
 
 public sealed class CourtWindow { public string Name { get; set; } = ""; public string Start { get; set; } = ""; public string End { get; set; } = ""; }
 public sealed record ReclubInput(string Url);
+
+public sealed record DepartureInput(int Revision, string PlayerId, int FromRound);
+
+public sealed record ArrivalInput(int Revision, string PlayerId, int FromRound);
+public sealed record SideInput(int Revision, string PlayerId, string Side);
+public sealed record SharingInput(int Revision, bool Enabled, bool Reset = false);
+public sealed record AdminUserInput(bool Disabled);

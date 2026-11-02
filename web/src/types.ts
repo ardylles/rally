@@ -1,11 +1,20 @@
-export type User = { id: string; name: string; email: string };
+export type User = {
+  id: string;
+  name: string;
+  email: string;
+  isAdmin?: boolean;
+};
 export type Club = { id: string; name: string; role: string };
 export type Member = User & { role: string };
 export type Player = {
   id: string;
   name: string;
+  side?: "left" | "right" | "both";
   skill: number | null;
   userId: string | null;
+  unavailableFromRound?: number | null;
+  availableFromRound?: number;
+  matchOnlyReplacement?: boolean;
 };
 export type Stats = {
   winners: number | null;
@@ -44,9 +53,11 @@ export type Meet = {
   mode: string;
   format: string;
   timing: boolean;
+  publicEnabled?: boolean;
   players: Player[];
   fixedPairs: string[][];
   matches: Match[];
+  schedulingNotes?: string[];
   createdAt: string;
 };
 export type MeetSummary = Pick<

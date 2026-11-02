@@ -79,7 +79,7 @@ This is the first working application, not the complete production release.
 
 - Reclub re-import reconciliation, persisted external profile provenance, and identity/account linking. Current import copies selected display names into a new meet draft.
 - Player profile and history across multiple meets.
-- Roster additions/removals beyond replacement, attendance windows, departures, and future-only live schedule regeneration.
+- General roster additions/removals, arrival windows and clock-time attendance. Round-based early departures and remaining-match regeneration are implemented.
 - Cancelled/abandoned matches, paused timing, meet completion, and export.
 - Shared physical court booking and registered-player conflict checks across meets.
 - Multiple intervals per court, overnight sessions, automatic handling of overruns, and rescheduling after play begins.
@@ -108,3 +108,7 @@ Court C is eligible for rounds 1–6; Courts A and B through round 9. Every full
 Include changeovers in the planned round length. Actual play may overrun; timer buttons do not automatically reschedule matches. One interval per court and same-day sessions are supported.
 
 Verification: 69 C# domain/parser checks, including the provided Reclub sample, and 26 API/PostgreSQL checks including a live Reclub fetch passed. TypeScript and production builds passed. Browser visual QA remains pending.
+
+## Early-departure update
+
+Players → Leave early records the first missed round and rebuilds remaining matches, preserving results, live matches and eligible substitutions. Schedule → Regenerate remaining can repeat the allocation using existing attendance settings. Fixed pairs with a missing player sit out until a remaining-meet replacement is added; mixed-mode partners join the rotating pool. See docs/02-scheduling-and-fairness.md for the full rules.

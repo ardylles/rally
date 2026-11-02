@@ -18,6 +18,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { PublicMeetPage, Sharing, AdminPanel } from "./Features";
 import { api } from "./api";
 import type {
   Club,
@@ -259,6 +260,10 @@ function Auth({ onLogin }: { onLogin: (u: User) => void }) {
   );
 }
 export default function App() {
+  const token = window.location.pathname.match(/^\/public\/([^/]+)$/)?.[1];
+  return token ? <PublicMeetPage token={token} /> : <Workspace />;
+}
+function Workspace() {
   const [user, setUser] = useState<User | null>(null),
     [boot, setBoot] = useState(true),
     [clubs, setClubs] = useState<Club[]>([]),
@@ -282,6 +287,38 @@ export default function App() {
   );
   const [importIds, setImportIds] = useState<string[]>([]);
   const [playersText, setPlayersText] = useState("");
+  const [draftStart, setDraftStart] = useState("16:00");
+  const [draftDuration, setDraftDuration] = useState("120");
+  const endMinute =
+    Number(draftStart.slice(0, 2)) * 60 +
+    Number(draftStart.slice(3)) +
+    Number(draftDuration);
+  const draftEnd =
+    draftStart && draftDuration && Number.isFinite(endMinute)
+      ? String(Math.floor(endMinute / 60) % 24).padStart(2, "0") +
+        ":" +
+        String(endMinute % 60).padStart(2, "0") +
+        (endMinute >= 1440 ? " (next day)" : "")
+      : "—";
+  const remainingRound = meet
+    ? Math.max(
+        0,
+        ...meet.matches.filter((m) => m.status !== "ready").map((m) => m.round),
+      )
+    : 0;
+  const canRegenerateRemaining =
+    !!meet &&
+    (meet.matches.some(
+      (m) => m.status === "ready" && m.round >= remainingRound,
+    ) ||
+      (meet.players.some(
+        (p) =>
+          p.unavailableFromRound != null || (p.availableFromRound || 0) > 0,
+      ) &&
+        remainingRound < meet.rounds - 1));
+  const isAvailable = (p: Player, r: number) =>
+    r >= (p.availableFromRound || 0) &&
+    (p.unavailableFromRound == null || r < p.unavailableFromRound);
   const courtName = (court: number) =>
     meet?.courtAvailability?.[court - 1]?.name ||
     "Court " + String(court).padStart(2, "0");
@@ -459,8 +496,13 @@ export default function App() {
       setReclubUrl("");
       setImportIds([]);
     }
-    if (kind === "create" || kind === "settings")
+    if (kind === "create" || kind === "settings") {
       setDraftMode(kind === "settings" ? meet?.mode || "rotating" : "rotating");
+      setDraftStart(kind === "settings" ? meet?.time || "16:00" : "16:00");
+      setDraftDuration(
+        String(kind === "settings" ? meet?.durationMinutes || 120 : 120),
+      );
+    }
     if (kind === "result") setStatsDraft({ ...match?.stats });
     setModal({ kind, match, player: p });
   }
@@ -576,6 +618,24 @@ export default function App() {
           setModal(null);
           setToast("Your meet is ready.");
         }
+      } else if (kind === "arrival") {
+        await change("/arrivals", {
+          playerId: modal!.player!.id,
+          fromRound: Number(f.get("fromRound")),
+        });
+      } else if (kind === "side") {
+        await change(
+          "/sides",
+          { playerId: modal!.player!.id, side: f.get("side") },
+          "PUT",
+        );
+      } else if (kind === "departure") {
+        await change("/departures", {
+          playerId: modal!.player!.id,
+          fromRound: Number(f.get("fromRound")),
+        });
+      } else if (kind === "regenerateRemaining") {
+        await change("/regenerate-remaining", {});
       } else if (kind === "result")
         await change(
           "/matches/" + modal!.match!.id + "/result",
@@ -595,6 +655,7 @@ export default function App() {
           outgoingId: f.get("outgoing"),
           name: f.get("name"),
           scope: f.get("scope"),
+          side: f.get("side"),
           skill: f.get("skill") ? Number(f.get("skill")) : null,
         });
       else if (kind === "skill")
@@ -655,9 +716,12 @@ export default function App() {
   const min = counts.length ? Math.min(...counts.map((c) => c.planned)) : 0,
     max = counts.length ? Math.max(...counts.map((c) => c.planned)) : 0;
   const completed = meet?.matches.filter((m) => m.status === "done") || [],
-    locked = meet?.matches.some(
-      (m) => m.status !== "ready" || m.changes.length > 0,
-    );
+    locked =
+      meet?.players.some(
+        (p) =>
+          p.unavailableFromRound != null || (p.availableFromRound || 0) > 0,
+      ) ||
+      meet?.matches.some((m) => m.status !== "ready" || m.changes.length > 0);
   function matchTable(matches: Match[]) {
     return (
       <div className="table-wrap">
@@ -728,7 +792,10 @@ export default function App() {
     const ids = meet!.matches
         .filter((m) => m.round === r)
         .flatMap((m) => m.teams.flat()),
-      resting = meet!.players.filter((p) => !ids.includes(p.id));
+      resting = meet!.players.filter(
+        (p) =>
+          isAvailable(p, r) && !p.matchOnlyReplacement && !ids.includes(p.id),
+      );
     return (
       <div className="rest">
         <Clock3 size={15} />
@@ -869,6 +936,15 @@ export default function App() {
             </button>
           );
         })}
+        {user.isAdmin && (
+          <button
+            className={"nav " + (view === "admin" ? "active" : "")}
+            onClick={() => setView("admin")}
+          >
+            <ShieldCheck size={18} />
+            Administration
+          </button>
+        )}
         <div className="nav-label meets-label">
           YOUR MEETS{" "}
           {clubAdmin && (
@@ -960,7 +1036,14 @@ export default function App() {
               </Button>
             )}
           </div>
-          {!club ? (
+          {view === "admin" && user.isAdmin ? (
+            <AdminPanel
+              onMeetDeleted={(id) => {
+                setSummaries((ms) => ms.filter((m) => m.id !== id));
+                if (meet?.id === id) setMeet(null);
+              }}
+            />
+          ) : !club ? (
             <div className="empty card">
               <Users size={38} />
               <h2>A home for your padel crew.</h2>
@@ -1258,8 +1341,9 @@ export default function App() {
                           <Check size={13} /> Fair participation comes first.
                           {meet.matches.length < plannedCapacity && (
                             <p>
-                              {plannedCapacity - meet.matches.length} booked court
-                              slots unused because of player numbers or fairness.
+                              {plannedCapacity - meet.matches.length} booked
+                              court slots unused because of player numbers or
+                              fairness.
                             </p>
                           )}
                           <p>
@@ -1303,21 +1387,27 @@ export default function App() {
                     <h2>Your court rotation</h2>
                     {canManage && (
                       <Button
-                        disabled={busy || locked}
-                        onClick={() => change("/generate", {})}
+                        disabled={busy || !canRegenerateRemaining}
+                        onClick={() => open("regenerateRemaining")}
                       >
                         <RefreshCw size={14} />
-                        Regenerate
+                        Regenerate remaining
                       </Button>
                     )}
                   </div>
                   <div className="hint">
-                    {meet.rounds} rounds · {modes[meet.mode]}. Started matches
-                    and substitutions protect the schedule from regeneration.
+                    {meet.rounds} rounds · {modes[meet.mode]}. Regenerating
+                    preserves started matches and eligible substitutions.
                     Planned times use {meet.timezone}. Allow for changeovers;
                     actual match durations can overrun the planned slots.
                   </div>
-                  <div className="hint">{meet.courtAvailability?.length ? meet.courtAvailability.map(c=>c.name+": "+c.start+"–"+c.end).join(" · ") : "All courts use the full session window."}</div>
+                  <div className="hint">
+                    {meet.courtAvailability?.length
+                      ? meet.courtAvailability
+                          .map((c) => c.name + ": " + c.start + "–" + c.end)
+                          .join(" · ")
+                      : "All courts use the full session window."}
+                  </div>
                   {Array.from({ length: meet.rounds }, (_, r) => (
                     <section className="schedule-round" key={r}>
                       <h3>Round {String(r + 1).padStart(2, "0")}</h3>
@@ -1327,6 +1417,14 @@ export default function App() {
                   ))}
                 </>
               )}
+              {["overview", "schedule", "players"].includes(view) &&
+                !!meet.schedulingNotes?.length && (
+                  <div className="hint">
+                    {meet.schedulingNotes.map((note, i) => (
+                      <p key={i}>{note}</p>
+                    ))}
+                  </div>
+                )}
               {view === "players" && (
                 <>
                   <div className="section-title">
@@ -1348,19 +1446,22 @@ export default function App() {
                     )}
                   </div>
                   <p className="subtitle">
-                    {meet.players.length} players · {modes[meet.mode]}
+                    {meet.players.length} registered players ·{" "}
+                    {modes[meet.mode]}
                   </p>
                   <div className="table-wrap">
                     <table>
                       <thead>
                         <tr>
                           <th>PLAYER</th>
+                          <th>PLAYING SIDE</th>
                           {meet.mode === "balanced" && <th>SKILL</th>}
                           {["fixed", "mixed"].includes(meet.mode) && (
                             <th>PARTNER</th>
                           )}
                           <th>PLANNED</th>
                           <th>COMPLETED</th>
+                          <th>AVAILABILITY</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1377,6 +1478,19 @@ export default function App() {
                                   </span>
                                   <strong>{p.name}</strong>
                                 </div>
+                              </td>
+                              <td>
+                                {canManage ? (
+                                  <button
+                                    className="text-button"
+                                    disabled={busy}
+                                    onClick={() => open("side", undefined, p)}
+                                  >
+                                    {p.side || "both"} · Edit
+                                  </button>
+                                ) : (
+                                  p.side || "both"
+                                )}
                               </td>
                               {meet.mode === "balanced" && (
                                 <td>
@@ -1414,6 +1528,49 @@ export default function App() {
                                 </span>
                               </td>
                               <td>{done}</td>
+                              <td>
+                                <div>
+                                  {(p.availableFromRound || 0) >= meet.rounds
+                                    ? "Waiting for arrival"
+                                    : (p.availableFromRound || 0) > 0
+                                      ? "Arrives round " +
+                                        ((p.availableFromRound || 0) + 1)
+                                      : "Present from start"}
+                                </div>
+                                {canManage &&
+                                  !meet.matches.some(
+                                    (m) =>
+                                      m.status !== "ready" &&
+                                      m.teams.flat().includes(p.id),
+                                  ) && (
+                                    <Button
+                                      disabled={busy}
+                                      onClick={() =>
+                                        open("arrival", undefined, p)
+                                      }
+                                    >
+                                      Late / arrival
+                                    </Button>
+                                  )}
+                                <span>
+                                  {p.unavailableFromRound == null
+                                    ? "Until session end"
+                                    : "Unavailable from round " +
+                                      (p.unavailableFromRound + 1)}
+                                </span>
+                                {canManage && canRegenerateRemaining && (
+                                  <Button
+                                    disabled={busy}
+                                    onClick={() =>
+                                      open("departure", undefined, p)
+                                    }
+                                  >
+                                    {p.unavailableFromRound == null
+                                      ? "Leave early"
+                                      : "Edit departure"}
+                                  </Button>
+                                )}
+                              </td>
                             </tr>
                           );
                         })}
@@ -1423,7 +1580,8 @@ export default function App() {
                   <div className="hint spaced">
                     New players are registered here. Substitute any existing
                     meet player directly from a match; their other assignments
-                    stay unchanged.
+                    stay unchanged. Left/Right restrictions apply to every team.
+                    Teams list the left-side player first.
                   </div>
                 </>
               )}
@@ -1476,6 +1634,9 @@ export default function App() {
                     ))
                   )}
                 </>
+              )}
+              {view === "overview" && canManage && (
+                <Sharing key={meet.id} meet={meet} onChange={setMeet} />
               )}
               {view === "organizers" && (
                 <>
@@ -1578,6 +1739,10 @@ export default function App() {
               result: "Match result",
               substitute: "Substitute for this match",
               replace: "Add a replacement player",
+              departure: "Player leaving early",
+              arrival: "Late player / arrival",
+              side: "Playing side",
+              regenerateRemaining: "Regenerate remaining matches",
               pairs: "Choose fixed partners",
               skill: "Edit player skill",
               organizers: "Assign meet organizers",
@@ -1592,17 +1757,126 @@ export default function App() {
           busy={busy}
           readOnly={modal.kind === "result" && !canManage}
           label={
-            ["pairs", "settings"].includes(modal.kind)
-              ? "Save & generate"
-              : modal.kind === "create"
-                ? "Create meet"
-                : "Save"
+            ["departure", "regenerateRemaining", "arrival", "side"].includes(
+              modal.kind,
+            )
+              ? "Save & regenerate remaining"
+              : ["pairs", "settings"].includes(modal.kind)
+                ? "Save & generate"
+                : modal.kind === "create"
+                  ? "Create meet"
+                  : "Save"
           }
         >
           {error && (
             <p role="alert" className="error">
               {error}
             </p>
+          )}
+          {["departure", "regenerateRemaining"].includes(modal.kind) &&
+            meet && (
+              <div>
+                {modal.kind === "departure" && (
+                  <>
+                    <p>
+                      <strong>{modal.player?.name}</strong> will be excluded
+                      from new matches starting with the selected round.
+                    </p>
+                    <Field label="Unavailable from round">
+                      <select
+                        name="fromRound"
+                        defaultValue={Math.max(
+                          remainingRound,
+                          modal.player?.unavailableFromRound ?? remainingRound,
+                        )}
+                      >
+                        {Array.from(
+                          { length: meet.rounds - remainingRound },
+                          (_, i) => remainingRound + i,
+                        ).map((r) => (
+                          <option key={r} value={r}>
+                            Round {r + 1}
+                            {meet.matches.find((m) => m.round === r)
+                              ?.plannedStart
+                              ? " · " +
+                                meet.matches.find((m) => m.round === r)
+                                  ?.plannedStart
+                              : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  </>
+                )}
+                <p className="hint">
+                  Completed and live matches, scores and statistics stay intact.
+                  An ongoing match can finish. Earlier rounds and eligible
+                  substitutions stay in place; other unstarted matches are
+                  rebuilt from round {remainingRound + 1} using previous match
+                  counts and court bookings.
+                </p>
+                {meet.mode === "fixed" && (
+                  <p className="hint">
+                    Fixed pairs stay together. A partner without an available
+                    teammate sits out; add a remaining-meet replacement from
+                    Players to restore the pair.
+                  </p>
+                )}
+                {meet.mode === "mixed" && (
+                  <p className="hint">
+                    If one fixed partner leaves, the remaining partner joins the
+                    rotating pool.
+                  </p>
+                )}
+                <p className="subtle">
+                  There may be fewer matches or unused courts when fewer players
+                  remain.
+                </p>
+              </div>
+            )}
+          {modal.kind === "arrival" && meet && (
+            <>
+              <p className="hint">
+                {modal.player?.name} receives a fair share from arrival onward.
+                Completed and live matches stay unchanged. Select “Waiting for
+                arrival” to exclude this player until they arrive.
+              </p>
+              <Field label="Available from">
+                <select
+                  name="fromRound"
+                  defaultValue={Math.max(
+                    remainingRound,
+                    modal.player?.availableFromRound || 0,
+                  )}
+                >
+                  {Array.from(
+                    { length: meet.rounds - remainingRound },
+                    (_, i) => remainingRound + i,
+                  ).map((r) => (
+                    <option key={r} value={r}>
+                      Round {r + 1}
+                    </option>
+                  ))}
+                  <option value={meet.rounds}>Waiting for arrival</option>
+                </select>
+              </Field>
+            </>
+          )}
+          {modal.kind === "side" && (
+            <>
+              <p className="hint">
+                Left and Right are strict restrictions. Choose Both for a
+                flexible player. Saving rebuilds compatible unstarted matches;
+                completed matches stay unchanged.
+              </p>
+              <Field label="Playing side">
+                <select name="side" defaultValue={modal.player?.side || "both"}>
+                  <option value="both">Both</option>
+                  <option value="left">Left only</option>
+                  <option value="right">Right only</option>
+                </select>
+              </Field>
+            </>
           )}
           {modal.kind === "club" && (
             <Field label="Club name">
@@ -1654,7 +1928,8 @@ export default function App() {
                     type="time"
                     name="time"
                     required
-                    defaultValue={meet?.time || "16:00"}
+                    value={draftStart}
+                    onChange={(e) => setDraftStart(e.target.value)}
                   />
                 </Field>
                 <Field label="Courts">
@@ -1684,7 +1959,8 @@ export default function App() {
                     required
                     min="30"
                     max="480"
-                    defaultValue={meet?.durationMinutes || 120}
+                    value={draftDuration}
+                    onChange={(e) => setDraftDuration(e.target.value)}
                   />
                 </Field>
                 <Field label="Planned minutes per round">
@@ -1705,6 +1981,17 @@ export default function App() {
                     }
                   />
                 </Field>
+                <div className="hint full" role="status">
+                  Session:{" "}
+                  <strong>
+                    {draftStart || "—"}–{draftEnd}
+                  </strong>{" "}
+                  ·{" "}
+                  {modal.kind === "settings" ? meet?.timezone : "Asia/Jakarta"}.
+                  Court bookings must fit within these times. For the
+                  18:00–21:00 example, set Start time to 18:00 and Session
+                  minutes to 180.
+                </div>
                 <Field label="Court availability · one court per line" full>
                   <textarea
                     name="courtAvailability"
@@ -1904,7 +2191,11 @@ export default function App() {
                     Choose a player
                   </option>
                   {meet!.players
-                    .filter((p) => !modal.match!.teams.flat().includes(p.id))
+                    .filter(
+                      (p) =>
+                        isAvailable(p, modal.match!.round) &&
+                        !modal.match!.teams.flat().includes(p.id),
+                    )
                     .map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name}
@@ -1923,22 +2214,33 @@ export default function App() {
               <div className="hint">
                 Register a new player for the next unstarted match or remaining
                 meet. Previous participation and statistics stay with the
-                original player.
+                original player. For someone already marked unavailable, choose
+                remaining meet.
               </div>
               <Field label="Player being replaced">
                 <select name="outgoing" required>
                   {meet!.players
-                    .filter((p) =>
-                      meet!.matches.some(
-                        (m) =>
-                          m.status === "ready" && m.teams.flat().includes(p.id),
-                      ),
+                    .filter(
+                      (p) =>
+                        p.unavailableFromRound != null ||
+                        meet!.matches.some(
+                          (m) =>
+                            m.status === "ready" &&
+                            m.teams.flat().includes(p.id),
+                        ),
                     )
                     .map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name}
                       </option>
                     ))}
+                </select>
+              </Field>
+              <Field label="Playing side">
+                <select name="side" defaultValue="both">
+                  <option value="both">Both</option>
+                  <option value="left">Left only</option>
+                  <option value="right">Right only</option>
                 </select>
               </Field>
               <Field label="New player's name">
