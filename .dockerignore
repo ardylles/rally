@@ -1,0 +1,22 @@
+# Send only the sources needed to build the application.
+**
+!Dockerfile
+!global.json
+!NuGet.Config
+!server/
+!server/Rally.Api/
+!server/Rally.Api/**
+!web/
+!web/**
+# Exclude generated output, local settings and credentials even inside sources.
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/wwwroot
+**/.env
+**/.env.*
+**/*.user
+**/*.tsbuildinfo
+**/*.pfx
+**/*.pem

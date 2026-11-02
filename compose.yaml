@@ -1,0 +1,40 @@
+name: rally
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:${RALLY_PORT:-5081}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Rally: "Host=db;Port=5432;Database=rally;Username=rally"
+      Database__Password: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env first}"
+      DataProtection__KeysPath: /var/lib/rally/keys
+    volumes:
+      - rally_keys:/var/lib/rally/keys
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: rally
+      POSTGRES_USER: rally
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env first}"
+    volumes:
+      - rally_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rally -d rally"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  rally_postgres:
+  rally_keys:
