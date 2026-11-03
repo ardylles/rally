@@ -17,7 +17,7 @@ foreach(var mode in new[]{"rotating","balanced","fixed","mixed"}) {
  MeetRules.Substitute(m,first,new(0,outId,incoming));
  Check(first.Teams[0][0]==incoming&&JsonSerializer.Serialize(other)==originalOther,mode+" busy player can substitute without changing other match");
  Reject(()=>MeetRules.Start(m,first),mode+" prevents simultaneous live play");
- Reject(()=>MeetRules.Substitute(m,first,new(0,incoming,first.Teams[1][0])),mode+" rejects duplicate participant");
+ MeetRules.Substitute(m,first,new(0,incoming,first.Teams[1][0]));Check(first.Teams.SelectMany(t=>t).Distinct().Count()==4,mode+" same-match selection swaps without duplicates");
  Reject(()=>Scheduler.Generate(m),mode+" preserves started/substituted schedule");
  MeetRules.Result(m,other,new(0,[4,2],new(){[incoming]=new(){Winners=2,UnforcedErrors=5}}));
  Check(other.Stats[incoming].PadelRatio==-3,mode+" negative padel ratio");
@@ -247,4 +247,27 @@ Reject(()=>Scheduler.RegenerateAll(managedMatches,false),"full regeneration requ
 Reject(()=>Scheduler.AddMatch(managedMatches,3),"quick generation rejects nonexistent court");
 Check(CourtPlanning.Clock(1450)=="00:10 (+1d)","late estimated slots show following day explicitly");
 var outsideBooking=Scheduler.AddMatch(spare,2);Check(outsideBooking.Matches.Any(x=>x.ManualAssignment&&x.Court==2&&x.PlannedStart==null),"quick match accepts selected court outside estimated booking");
+foreach(var mode in new[]{"rotating","balanced","fixed","mixed"}) {
+ var swapMeet=Example(12,3,4,mode,2);Scheduler.Generate(swapMeet);
+ var source=swapMeet.Matches[0];var target=swapMeet.Matches[1];var unaffected=swapMeet.Matches.Where(x=>x.Id!=source.Id&&x.Id!=target.Id).ToDictionary(x=>x.Id,x=>JsonSerializer.Serialize(x));
+ var swapOutgoing=source.Teams[0][0];var incoming=target.Teams[1][1];
+ MeetRules.Substitute(swapMeet,source,new(0,swapOutgoing,incoming));
+ Check(source.Teams.SelectMany(t=>t).Contains(incoming)&&!source.Teams.SelectMany(t=>t).Contains(swapOutgoing)&&target.Teams.SelectMany(t=>t).Contains(swapOutgoing)&&!target.Teams.SelectMany(t=>t).Contains(incoming),mode+" upcoming cross-court players swap reciprocally");
+ Check(unaffected.All(kv=>JsonSerializer.Serialize(swapMeet.Matches.Single(x=>x.Id==kv.Key))==kv.Value),mode+" swap preserves all other matches");
+ var sourceJson=JsonSerializer.Serialize(source);var targetJson=JsonSerializer.Serialize(target);Scheduler.RegenerateRemaining(swapMeet);
+ Check(swapMeet.Matches.Any(x=>x.Id==source.Id&&JsonSerializer.Serialize(x)==sourceJson)&&swapMeet.Matches.Any(x=>x.Id==target.Id&&JsonSerializer.Serialize(x)==targetJson),mode+" regeneration preserves both sides of swap");
+}
+var sameSwap=Example(4,1,2,"rotating");Scheduler.Generate(sameSwap);var same=sameSwap.Matches[0];var sameOut=same.Teams[0][0];var sameIn=same.Teams[1][0];
+MeetRules.Substitute(sameSwap,same,new(0,sameOut,sameIn));
+Check(same.Teams[0][0]==sameIn&&same.Teams[1][0]==sameOut,"same-match opponent swap changes both positions");
+var teamMate=same.Teams[0][1];MeetRules.Substitute(sameSwap,same,new(0,sameIn,teamMate));
+Check(same.Teams[0][0]==teamMate&&same.Teams[0][1]==sameIn,"flexible teammates can swap positions");
+Reject(()=>MeetRules.Substitute(sameSwap,same,new(0,teamMate,teamMate)),"cannot substitute player with themselves");
+var rejectSwap=Example(8,2,2,"rotating");Scheduler.Generate(rejectSwap);var rs=rejectSwap.Matches[0];var rt=rejectSwap.Matches[1];
+rejectSwap.Players.Single(p=>p.Id==rs.Teams[0][0]).Side="left";
+rejectSwap.Players.Single(p=>p.Id==rt.Teams[0][0]).Side="both";
+rejectSwap.Players.Single(p=>p.Id==rt.Teams[0][1]).Side="left";
+var rejectBefore=JsonSerializer.Serialize(rejectSwap);
+Reject(()=>MeetRules.Substitute(rejectSwap,rs,new(0,rs.Teams[0][0],rt.Teams[0][0])),"reject side conflict in reciprocal target match");
+Check(JsonSerializer.Serialize(rejectSwap)==rejectBefore,"failed reciprocal swap is atomic");
 Console.WriteLine($"All {checks} checks passed.");

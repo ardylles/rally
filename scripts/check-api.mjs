@@ -184,6 +184,27 @@ check(manage.matches.every(x=>x.status==='ready'&&x.score===null&&Object.keys(x.
 const managementAudit=await owner.request('/meets/'+manage.id+'/audit');
 check(['generate-match','match-delete','match-restart','regenerate-all'].every(action=>managementAudit.some(a=>a.action===action)),'match management actions are audited');
 
+
+let swapMeet=await owner.request('/clubs/'+club.id+'/meets','POST',input('rotating'));
+const [swapSource,swapTarget]=swapMeet.matches.filter(x=>x.round===0);
+const swapOut=swapSource.teams[0][0],swapIn=swapTarget.teams[0][0],swapVersion=swapMeet.revision;
+const swapOthers=JSON.stringify(swapMeet.matches.filter(x=>x.id!==swapSource.id&&x.id!==swapTarget.id));
+swapMeet=await owner.request('/meets/'+swapMeet.id+'/matches/'+swapSource.id+'/substitute','POST',{revision:swapVersion,outgoingId:swapOut,incomingId:swapIn});
+check(swapMeet.matches.find(x=>x.id===swapSource.id).teams[0][0]===swapIn&&swapMeet.matches.find(x=>x.id===swapTarget.id).teams[0][0]===swapOut&&swapMeet.revision===swapVersion+1,'cross-court swap persists both assignments in one revision');
+check(JSON.stringify(swapMeet.matches.filter(x=>x.id!==swapSource.id&&x.id!==swapTarget.id))===swapOthers,'swap leaves other rounds unchanged');
+await owner.request('/meets/'+swapMeet.id+'/matches/'+swapSource.id+'/substitute','POST',{revision:swapVersion,outgoingId:swapIn,incomingId:swapOut},409);
+check(true,'stale swap rejected');
+const sameIncoming=swapMeet.matches.find(x=>x.id===swapSource.id).teams[1][0];
+swapMeet=await owner.request('/meets/'+swapMeet.id+'/matches/'+swapSource.id+'/substitute','POST',{revision:swapMeet.revision,outgoingId:swapIn,incomingId:sameIncoming});
+const sameSwapped=swapMeet.matches.find(x=>x.id===swapSource.id);
+check(sameSwapped.teams[0][0]===sameIncoming&&sameSwapped.teams[1][0]===swapIn&&new Set(sameSwapped.teams.flat()).size===4,'same-match selection switches player positions');
+const swapPreserved=swapMeet.matches.filter(x=>x.id===swapSource.id||x.id===swapTarget.id);
+swapMeet=await owner.request('/meets/'+swapMeet.id+'/regenerate-remaining','POST',{revision:swapMeet.revision});
+check(swapPreserved.every(old=>JSON.stringify(swapMeet.matches.find(x=>x.id===old.id))===JSON.stringify(old)),'regeneration preserves reciprocal swaps');
+check(JSON.stringify((await owner.request('/meets/'+swapMeet.id)).matches)===JSON.stringify(swapMeet.matches),'swapped matches survive fresh database read');
+await owner.request('/meets/'+swapMeet.id+'/matches/'+swapSource.id+'/substitute','POST',{revision:swapMeet.revision,outgoingId:sameIncoming,incomingId:sameIncoming},400);
+check(true,'self substitution rejected');
+
 if(process.env.RALLY_TEST_ADMIN_DLL){
  // Elevated fixtures are allowed only against the dedicated local test database.
  assert.equal(new URL(base).hostname,'127.0.0.1');

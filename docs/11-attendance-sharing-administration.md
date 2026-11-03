@@ -58,7 +58,7 @@ The optional administrator integration fixture is enabled through RALLY_TEST_ADM
 
 ## Match substitutions and extra rounds
 
-The match substitution picker includes every registered player outside that match, including busy, waiting, late and departed players. A manual registered substitution overrides attendance for that match only. It does not change arrival/departure dates or automatically add the player to other rounds. Regeneration retains the explicit substitution. Teams must still respect strict Left/Right restrictions, and starting a match still checks that players and the court are not already in a live match.
+The match substitution picker includes every registered player, including busy, waiting, late and departed players. A manual registered substitution overrides attendance for that match only. It does not change arrival/departure dates or automatically add the player to other rounds. Regeneration retains the explicit substitution. Teams must still respect strict Left/Right restrictions, and starting a match still checks that players and the court are not already in a live match.
 
 Use **Extra rounds** on the court overview or Schedule to append more rounds, even after the original schedule has finished. Existing matches, IDs, scores, statistics, timers and substitutions remain unchanged. New rounds use the current round length, previous participation, fixed partners, playing sides and attendance.
 
@@ -69,3 +69,9 @@ Limits remain 20 total rounds, 480 session minutes, for the configured session (
 API: POST /api/meets/{id}/extra-rounds accepts revision, count, optional durationMinutes and optional courtAvailability (same courts, names and opening times; closing times may only extend). It requires meet-organizer access, checks revision conflicts and records an extra-rounds audit event.
 
 See [flexible match management](12-flexible-match-management.md) for quick single-match generation, advisory booking times, restart/delete and confirmed full regeneration.
+
+## Court refresh and substitution swaps
+
+Refreshing restores the selected club and meet and opens the earliest live round, otherwise the earliest upcoming round, otherwise the latest completed round. Manual round browsing remains available.
+
+Both substitution dropdowns show completed matches played by each actual participant; planned and live matches do not count. Selecting another player in the same match swaps positions. Selecting a player in another unstarted match in the same round swaps both players between matches. Both assignments are validated and saved together, and survive remaining-schedule regeneration. Live and completed matches and other rounds are unchanged. Selecting the outgoing player itself is disabled.

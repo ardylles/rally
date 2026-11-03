@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import { activeRound, matchesPlayed } from '../web/src/meetView.ts';
+const m=(round,status,teams=[['a','b'],['c','d']])=>({round,status,teams});
+assert.equal(activeRound({matches:[m(0,'ready'),m(3,'live'),m(2,'live')]}),2);
+assert.equal(activeRound({matches:[m(0,'done'),m(2,'ready'),m(1,'ready')]}),1);
+assert.equal(activeRound({matches:[m(0,'done'),m(4,'done')]}),4);
+assert.equal(activeRound({matches:[]}),0);
+assert.equal(matchesPlayed({matches:[m(0,'done'),m(1,'live'),m(2,'ready'),m(3,'done',[['e','f'],['g','h']])]},'a'),1);
+assert.equal(matchesPlayed({matches:[]},'a'),0);
+console.log('All 6 active-round and played-count checks passed.');

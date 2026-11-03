@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { PublicMeetPage, Sharing, AdminPanel } from "./Features";
 import { api } from "./api";
+import { activeRound, matchesPlayed } from "./meetView";
 import type {
   Club,
   Meet,
@@ -30,6 +31,20 @@ import type {
   Player,
   Stats,
 } from "./types";
+function remembered(key: string) {
+  try {
+    return sessionStorage.getItem(key) || "";
+  } catch {
+    return "";
+  }
+}
+function remember(key: string, value: string) {
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    /* Selection still works when storage is unavailable. */
+  }
+}
 const modes: Record<string, string> = {
   rotating: "Rotating · variety",
   balanced: "Rotating · skill balance",
@@ -287,6 +302,8 @@ function Workspace() {
   );
   const [importIds, setImportIds] = useState<string[]>([]);
   const [playersText, setPlayersText] = useState("");
+  const [subOutgoing, setSubOutgoing] = useState("");
+  const [subIncoming, setSubIncoming] = useState("");
   const [extraCount, setExtraCount] = useState(1);
   const [extraDuration, setExtraDuration] = useState(120);
   const [draftStart, setDraftStart] = useState("16:00");
@@ -383,7 +400,11 @@ function Workspace() {
       .then((c) => {
         setClubs(c);
         setClubId((old) =>
-          c.some((x) => x.id === old) ? old : c[0]?.id || "",
+          c.some((x) => x.id === old)
+            ? old
+            : c.find((x) => x.id === remembered("rally.club." + user.id))?.id ||
+              c[0]?.id ||
+              "",
         );
       })
       .catch((e) => setError(e.message));
@@ -403,9 +424,14 @@ function Workspace() {
         if (!active) return;
         setSummaries(ms);
         setMembers(mem);
-        if (ms[0]) {
-          const m = await api<Meet>("/meets/" + ms[0].id);
-          if (active) setMeet(m);
+        const preferred =
+          ms.find((m) => m.id === remembered("rally.meet." + clubId)) || ms[0];
+        if (preferred) {
+          const m = await api<Meet>("/meets/" + preferred.id);
+          if (active) {
+            setMeet(m);
+            setRound(activeRound(m));
+          }
         }
       })
       .catch((e) => {
@@ -452,6 +478,7 @@ function Workspace() {
           api<User[]>("/meets/" + meet.id + "/organizers"),
         ]);
         setMeet(m);
+        setRound(activeRound(m));
         setOrganizers(o);
       }
     } catch (e) {
@@ -462,8 +489,10 @@ function Workspace() {
     setError("");
     setBusy(true);
     try {
-      setMeet(await api<Meet>("/meets/" + id));
-      setRound(0);
+      const selected = await api<Meet>("/meets/" + id);
+      setMeet(selected);
+      remember("rally.meet." + clubId, id);
+      setRound(activeRound(selected));
       setView("overview");
     } catch (e) {
       setError((e as Error).message);
@@ -508,6 +537,10 @@ function Workspace() {
     if (kind === "extraRounds" && meet) {
       setExtraCount(1);
       setExtraDuration(meet.durationMinutes);
+    }
+    if (kind === "substitute" && match) {
+      setSubOutgoing(match.teams[0][0]);
+      setSubIncoming("");
     }
     if (kind === "result") setStatsDraft({ ...match?.stats });
     setModal({ kind, match, player: p });
@@ -980,7 +1013,10 @@ function Workspace() {
           <select
             aria-label="Select club"
             value={clubId}
-            onChange={(e) => setClubId(e.target.value)}
+            onChange={(e) => {
+              remember("rally.club." + user.id, e.target.value);
+              setClubId(e.target.value);
+            }}
           >
             {clubs.map((c) => (
               <option key={c.id} value={c.id}>
@@ -2090,8 +2126,9 @@ function Workspace() {
                 <>
                   <h3 className="spaced-title">Court closing times</h3>
                   <p className="subtle">
-                    Keep courts that close early unchanged. Booking times are guidance and do not block extra rounds. Only extend a booking
-                    if the court is available.
+                    Keep courts that close early unchanged. Booking times are
+                    guidance and do not block extra rounds. Only extend a
+                    booking if the court is available.
                   </p>
                   <div className="fields">
                     {meet.courtAvailability.map((c, i) => (
@@ -2457,40 +2494,68 @@ function Workspace() {
             <>
               <div className="hint">
                 Round {modal.match.round + 1} · Court {modal.match.court}.
-                Choose any registered player outside this match. Other
-                assignments are unchanged; starting the match still requires
-                free players and court. Late or departed players can be selected
-                for this match only. Strict Left/Right pairing still applies.
+                Choose any registered player. Selecting someone in this match
+                swaps their positions. Selecting someone in another upcoming
+                match in this round swaps both players between matches. Live and
+                completed matches are never changed. Strict playing sides still
+                apply.
               </div>
               <Field label="Player being replaced">
-                <select name="outgoing">
+                <select
+                  name="outgoing"
+                  value={subOutgoing}
+                  onChange={(e) => {
+                    setSubOutgoing(e.target.value);
+                    setSubIncoming("");
+                  }}
+                >
                   {modal.match.teams.flat().map((id) => (
                     <option key={id} value={id}>
-                      {player(id)?.name}
+                      {player(id)?.name} · {matchesPlayed(meet!, id)} played
                     </option>
                   ))}
                 </select>
               </Field>
               <Field label="Registered substitute">
-                <select name="incoming" required defaultValue="">
+                <select
+                  name="incoming"
+                  required
+                  value={subIncoming}
+                  onChange={(e) => setSubIncoming(e.target.value)}
+                >
                   <option value="" disabled>
                     Choose a player
                   </option>
-                  {meet!.players
-                    .filter((p) => !modal.match!.teams.flat().includes(p.id))
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                        {!isAvailable(p, modal.match!.round)
-                          ? " · attendance override"
-                          : ""}
-                      </option>
-                    ))}
+                  {meet!.players.map((p) => (
+                    <option
+                      key={p.id}
+                      value={p.id}
+                      disabled={p.id === subOutgoing}
+                    >
+                      {p.name} · {matchesPlayed(meet!, p.id)} played
+                      {p.id === subOutgoing
+                        ? " · selected player"
+                        : modal.match!.teams.flat().includes(p.id)
+                          ? " · swap in this match"
+                          : meet!.matches.some(
+                                (m) =>
+                                  m.id !== modal.match!.id &&
+                                  m.round === modal.match!.round &&
+                                  m.status === "ready" &&
+                                  m.teams.flat().includes(p.id),
+                              )
+                            ? " · swap from another match"
+                            : ""}
+                      {!isAvailable(p, modal.match!.round)
+                        ? " · attendance override"
+                        : ""}
+                    </option>
+                  ))}
                 </select>
               </Field>
               <p className="subtle">
-                Applies to this match only. Add a new player from the Players
-                list.
+                Other rounds stay unchanged. “Played” counts completed matches
+                only. Add a new player from the Players list.
               </p>
             </>
           )}

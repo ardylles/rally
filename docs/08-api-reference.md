@@ -32,7 +32,7 @@ Club roles are `organizer` or `member`. Meet organizers are a separate assignmen
 | POST | /meets/{id}/replacements | Register name/skill as replacement for outgoingId, scope one or meet |
 | POST | /meets/{id}/matches/{match}/start | Start and timestamp a match |
 | PUT | /meets/{id}/matches/{match}/result | Save score and optional per-player stats |
-| POST | /meets/{id}/matches/{match}/substitute | Replace outgoingId with existing incomingId for this match only |
+| POST | /meets/{id}/matches/{match}/substitute | Substitute or swap outgoingId with registered incomingId; reciprocal swap for another ready match in the same round |
 | GET / PUT | /meets/{id}/organizers | Read / replace assigned organizer userIds |
 | GET | /meets/{id}/audit | Latest 100 meet audit entries |
 

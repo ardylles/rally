@@ -98,7 +98,7 @@ Verify four players on one court; eight on two courts; ten on two courts; more c
 
 Automated scheduler checks should enforce all hard constraints, reproduce seeded schedules, verify appearance totals, and compare results against known feasible small cases. Do not test only one expected random ordering.
 
-Match-view substitution must preserve roster size, affect only its selected match, and reject an incoming player already in that match. Players assigned elsewhere in the round or currently playing remain selectable. This manual override may introduce planned overlaps; preserve the other assignments and require free players and court before starting the match. A member of another fixed team may substitute without changing their ongoing membership. Only the Players list can register new replacements.
+Match-view substitution preserves roster size and lists every registered player. Selecting another player in the same match swaps their positions. Selecting a player in another ready match in the same round swaps both assignments atomically. Live and completed matches remain unchanged; players in them remain selectable, with live-play conflicts checked when starting. Both resulting teams must respect strict sides. A member of another fixed team may substitute without changing ongoing membership. Only the Players list can register new replacements.
 
 ## Mixed-mode scheduling
 

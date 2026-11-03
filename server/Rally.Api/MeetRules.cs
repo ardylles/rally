@@ -50,7 +50,7 @@ public static class MeetRules {
  public static bool Available(Player p,int round)=>round>=p.AvailableFromRound&&(p.UnavailableFromRound is not int from || round<from);
  // Explicit registered substitutions override attendance for this match only.
  public static bool AvailableForMatch(Player p,Match match)=>Available(p,match.Round)||
-  match.Changes.LastOrDefault(c=>c.IncomingId==p.Id||c.OutgoingId==p.Id) is { Source:"match" } change&&change.IncomingId==p.Id;
+  match.Teams.SelectMany(t=>t).Contains(p.Id)&&match.Changes.Any(c=>c.Source=="match"&&c.IncomingId==p.Id);
  public static void Depart(Meet m,DepartureInput input) {
   var p=m.Players.FirstOrDefault(p=>p.Id==input.PlayerId)??throw new RuleException("Player not found.",404);
   Require(input.FromRound>=RemainingRound(m)&&input.FromRound<m.Rounds,"Choose the current or a future round within this meet.");
@@ -96,10 +96,32 @@ public static class MeetRules {
   Require(match.Status=="ready","Only unstarted matches can be substituted.");
   Require(match.Teams.SelectMany(t=>t).Contains(input.OutgoingId),"Choose an outgoing player from this match.");
   Require(m.Players.Any(p=>p.Id==input.IncomingId),"Choose a registered player from this meet.");
-  Require(!match.Teams.SelectMany(t=>t).Contains(input.IncomingId),"That player is already in this match.");
-  Require(match.Teams.Select(t=>t.Select(id=>id==input.OutgoingId?input.IncomingId:id).ToArray()).All(t=>CompatibleTeam(m,t)),"The substitute’s side conflicts with their partner.");
-  Replace(m,match,input.OutgoingId,input.IncomingId,"one","match");
+  Require(input.OutgoingId!=input.IncomingId,"Choose a different player.");
+  bool sameMatch=match.Teams.SelectMany(t=>t).Contains(input.IncomingId);
+  var otherMatches=sameMatch?new List<Match>():m.Matches.Where(x=>x.Id!=match.Id&&x.Round==match.Round&&x.Status=="ready"&&x.Teams.SelectMany(t=>t).Contains(input.IncomingId)).ToList();
+  Require(otherMatches.Count<=1,"This player appears in multiple upcoming matches in this round. Remove the duplicate assignment before swapping.");
+  var other=otherMatches.SingleOrDefault();
+  string[][] SwapTeams(Match target,bool reverse=false)=>target.Teams.Select(t=>t.Select(id=>
+   sameMatch?(id==input.OutgoingId?input.IncomingId:id==input.IncomingId?input.OutgoingId:id):
+   reverse?(id==input.IncomingId?input.OutgoingId:id):(id==input.OutgoingId?input.IncomingId:id)).ToArray()).ToArray();
+  var teams=SwapTeams(match);var otherTeams=other==null?null:SwapTeams(other,true);
+  void ValidateTeams(string[][] candidate) {
+   Require(candidate.SelectMany(t=>t).Distinct().Count()==4,"The swap would assign a player twice in one match.");
+   Require(candidate.All(t=>CompatibleTeam(m,t)),"The swap conflicts with a partner’s strict Left/Right side.");
+  }
+  // Validate both affected matches before mutating either one.
+  ValidateTeams(teams);if(otherTeams!=null)ValidateTeams(otherTeams);
+  if(sameMatch) {
+   match.Teams=teams;
+   match.Changes.Add(new(input.OutgoingId,input.IncomingId,"one","match",DateTimeOffset.UtcNow));
+   match.Changes.Add(new(input.IncomingId,input.OutgoingId,"one","match",DateTimeOffset.UtcNow));
+  } else {
+   Replace(m,match,input.OutgoingId,input.IncomingId,"one","match");
+   if(other!=null)Replace(m,other,input.IncomingId,input.OutgoingId,"one","match");
+  }
+  match.Teams=Orient(m,match.Teams);
  }
+ private static string[][] Orient(Meet m,string[][] teams)=>teams.Select(t=>m.Players.Single(p=>p.Id==t[0]).Side=="right"||m.Players.Single(p=>p.Id==t[1]).Side=="left"?t.Reverse().ToArray():t).ToArray();
  public static void Replacement(Meet m,ReplacementInput input) {
   ValidateSide(input.Side);
   Require(input.Scope is "one" or "meet","Choose next match or remaining meet.");
