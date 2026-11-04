@@ -98,6 +98,11 @@ api.MapGet("/clubs/{club}/meets",async(string club,Database db,HttpContext ctx)=
  var user=UserId(ctx);var role=await ClubRole(db,club,user);
  return await db.Query("""SELECT id,document->>'name' AS name,document->>'date' AS date,document->>'mode' AS mode,revision,(@organizer OR EXISTS(SELECT 1 FROM meet_organizers mo WHERE mo.meet_id=meets.id AND mo.user_id=@user)) AS "canManage" FROM meets WHERE club_id=@club ORDER BY document->>'date' DESC, updated_at DESC""",("club",club),("user",user),("organizer",role=="organizer"));
 });
+api.MapGet("/clubs/{club}/results",async(string club,Database db,HttpContext ctx)=>{
+ await ClubRole(db,club,UserId(ctx));ctx.Response.Headers.CacheControl="no-store";
+ var rows=await db.Query("SELECT document::text AS document FROM meets WHERE club_id=@club ORDER BY document->>'date' DESC",("club",club));
+ return rows.Select(row=>{var m=JsonSerializer.Deserialize<Meet>((string)row["document"]!,Json.Options)!;return new {m.Id,m.Name,m.Date,m.Timezone,players=m.Players.Select(p=>new{p.Id,p.Name,p.UserId}),matches=m.Matches.Select(x=>new{x.Id,x.Status,x.Teams,x.Score,x.Stats})};});
+});
 api.MapPost("/clubs/{club}/meets",async(string club,Meet input,Database db,HttpContext ctx)=>{
  var user=UserId(ctx);await RequireClub(db,club,user);input.Id=Guid.NewGuid().ToString("N");input.ClubId=club;input.Revision=1;input.CreatedAt=DateTimeOffset.UtcNow;input.Matches=[];input.PublicEnabled=false;
  // Client player identifiers are meet-local, not account ownership claims.

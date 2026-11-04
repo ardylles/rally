@@ -1,0 +1,12 @@
+import assert from "node:assert/strict";
+import {standings,inPeriod} from "../web/src/results.ts";
+const players=["a","b","c","d","e"].map(id=>({id,name:id,userId:null}));
+const m={id:"one",name:"Meet",date:"2026-11-02",timezone:"Asia/Jakarta",players,matches:[{id:"x",status:"done",teams:[["a","b"],["c","d"]],score:[4,2],stats:{a:{winners:5,unforcedErrors:2},b:{winners:3,unforcedErrors:null}}},{id:"y",status:"live",teams:[["a","b"],["c","d"]],score:null,stats:{}}]};
+let r=standings([m]);assert.equal(r.length,5);assert.equal(r.find(x=>x.key==="e").played,0);assert.equal(r[0].wins,1);assert.equal(r[0].gamesFor,4);assert.equal(r[0].ratio,3);assert.equal(r[1].ratio,null);assert.equal(r[1].rank,1);
+assert.equal(standings([m,{...m,id:"two"}],true,true)[0].played,2);
+assert.equal(standings([m,{...m,id:"two"}],true,false).length,8);
+assert.equal(standings([{...m,matches:[]}],true).length,0);
+const now=new Date("2026-11-03T12:00:00Z");
+assert.ok(inPeriod(m,"week",now));assert.ok(!inPeriod({...m,date:"2026-11-01"},"week",now));assert.ok(inPeriod({...m,date:"2026-11-01"},"month",now));assert.ok(!inPeriod({...m,date:"2026-10-31"},"month",now));assert.ok(inPeriod({...m,date:"2025-01-01"},"all",now));assert.ok(!inPeriod({...m,date:"2026-11-04"},"week",now));
+assert.equal(standings([{...m,matches:[{...m.matches[0],teams:[["e","b"],["c","d"]]}]}]).find(x=>x.key==="a").played,0);
+console.log("All 17 results and ranking checks passed.");

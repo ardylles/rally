@@ -1,3 +1,4 @@
+import { MeetResults, ClubResults } from "./ResultsPage";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   Activity,
@@ -1029,6 +1030,8 @@ function Workspace() {
         {[
           ["overview", "Meet dashboard", Grid2X2],
           ["players", "Players", Users],
+          ["results", "Meet results", History],
+          ["club-results", "Club history & rankings", History],
           ["history", "Match history", History],
           ["organizers", "Organizers", ShieldCheck],
         ].map(([id, label, Icon]) => {
@@ -1172,6 +1175,15 @@ function Workspace() {
                 Check membership
               </Button>
             </div>
+          ) : view === "club-results" ? (
+            <ClubResults
+              key={clubId}
+              clubId={clubId}
+              onOpen={async (id) => {
+                await selectMeet(id);
+                setView("results");
+              }}
+            />
           ) : !meet ? (
             <div className="empty card">
               <Flag size={38} />
@@ -1199,6 +1211,7 @@ function Workspace() {
                   {[
                     "overview",
                     "schedule",
+                    "results",
                     "players",
                     "history",
                     "organizers",
@@ -1738,6 +1751,7 @@ function Workspace() {
                   </div>
                 </>
               )}
+              {view === "results" && <MeetResults meet={meet} />}
               {view === "history" && (
                 <>
                   <div className="section-title">

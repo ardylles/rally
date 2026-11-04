@@ -205,6 +205,13 @@ check(JSON.stringify((await owner.request('/meets/'+swapMeet.id)).matches)===JSO
 await owner.request('/meets/'+swapMeet.id+'/matches/'+swapSource.id+'/substitute','POST',{revision:swapMeet.revision,outgoingId:sameIncoming,incomingId:sameIncoming},400);
 check(true,'self substitution rejected');
 
+const clubResults=await member.request('/clubs/'+club.id+'/results');
+check(clubResults.some(x=>x.id===m.id)&&clubResults.every(x=>x.players.every(p=>!('email' in p))&&!('changes' in x)),'club members can read results across meets');
+check(clubResults.find(x=>x.id===m.id).matches.some(x=>x.status==='done'&&x.score[0]===4),'club results contain saved scores');
+await stranger.request('/clubs/'+club.id+'/results','GET',undefined,403);
+await anonymous.request('/clubs/'+club.id+'/results','GET',undefined,401);
+check(true,'club results reject outsiders and anonymous access');
+
 if(process.env.RALLY_TEST_ADMIN_DLL){
  // Elevated fixtures are allowed only against the dedicated local test database.
  assert.equal(new URL(base).hostname,'127.0.0.1');
