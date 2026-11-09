@@ -7,7 +7,7 @@ public static class ReclubScraper {
  public static string Code(string url) {
   if(!Uri.TryCreate(url,UriKind.Absolute,out var uri)||uri.Scheme!="https"||uri.Host!="reclub.co"||!uri.IsDefaultPort||uri.UserInfo.Length>0)
    throw new RuleException("Use a public https://reclub.co/m/… meet URL.");
-  var match=Regex.Match(uri.AbsolutePath,@"^/m/([A-Za-z0-9]{4,20})/?$");
+  var match=Regex.Match(uri.AbsolutePath,@"^/(?:[a-z]{2}(?:-[A-Za-z]{2,4})?/)?m/([A-Za-z0-9]{4,20})/?$");
   if(!match.Success)throw new RuleException("Use a Reclub meet URL, such as https://reclub.co/m/PATO94.");
   return match.Groups[1].Value;
  }

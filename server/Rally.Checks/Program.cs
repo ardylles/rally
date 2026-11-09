@@ -289,4 +289,10 @@ Reject(()=>MeetRules.AddPlayer(needSkill,new(0,"No skill","both",null,true)),"ba
 var fixedAdd=Example(8,2,4,"fixed");Scheduler.Generate(fixedAdd);
 Reject(()=>MeetRules.AddPlayer(fixedAdd,new(0,"Left one","left",null,true,"Left two","left")),"new fixed pair side compatibility enforced");
 Check(fixedAdd.Players.Count==8,"rejected addition leaves original roster intact");
+Check(ReclubScraper.Code("https://reclub.co/id/m/K3YK9M")=="K3YK9M","Indonesian meet URL accepted");
+Check(ReclubScraper.Code("https://reclub.co/en/m/K3YK9M/?source=share")=="K3YK9M","localized trailing slash and query accepted");
+Check(ReclubScraper.Code("https://reclub.co/zh-TW/m/K3YK9M")=="K3YK9M","regional language prefix accepted");
+Reject(()=>ReclubScraper.Code("https://reclub.co/id/other/K3YK9M"),"localized non-meet path rejected");
+Reject(()=>ReclubScraper.Code("https://evil.test/id/m/K3YK9M"),"localized external host rejected");
+if(args.Length>1){var localized=ReclubScraper.Parse(File.ReadAllText(args[1]),"K3YK9M");Check(localized.Players.Count>0,"live Indonesian sample roster parsed");var fetched=await ReclubScraper.Fetch("https://reclub.co/id/m/K3YK9M",CancellationToken.None);Check(fetched.Players.Count>0,"localized sample URL fetched and imported end to end");Console.WriteLine($"Imported {fetched.Players.Count} participants from localized sample.");}
 Console.WriteLine($"All {checks} checks passed.");
