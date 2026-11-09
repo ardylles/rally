@@ -1,3 +1,4 @@
+import {SortableTable} from "./SortableTable";
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import type { Meet, User } from "./types";
@@ -66,7 +67,7 @@ export function PublicMeetPage({ token }: { token: string }) {
             <section className="schedule-round" key={r}>
               <h2>Round {r + 1}</h2>
               <div className="table-wrap">
-                <table>
+                <SortableTable>
                   <thead>
                     <tr>
                       <th>Court / time</th>
@@ -109,7 +110,7 @@ export function PublicMeetPage({ token }: { token: string }) {
                         </tr>
                       ))}
                   </tbody>
-                </table>
+                </SortableTable>
               </div>
               {!meet.matches.some((m) => m.round === r) && (
                 <p>No matches planned.</p>
@@ -281,7 +282,7 @@ export function AdminPanel({
         sessions.
       </p>
       <div className="table-wrap">
-        <table>
+        <SortableTable>
           <thead>
             <tr>
               <th>User</th>
@@ -338,11 +339,11 @@ export function AdminPanel({
               </tr>
             ))}
           </tbody>
-        </table>
+        </SortableTable>
       </div>
       <h2 className="spaced-title">Meets</h2>
       <div className="table-wrap">
-        <table>
+        <SortableTable>
           <thead>
             <tr>
               <th>Meet</th>
@@ -377,11 +378,11 @@ export function AdminPanel({
               </tr>
             ))}
           </tbody>
-        </table>
+        </SortableTable>
       </div>
       <h2 className="spaced-title">Administration history</h2>
       <div className="table-wrap">
-        <table>
+        <SortableTable>
           <thead>
             <tr>
               <th>When</th>
@@ -400,7 +401,7 @@ export function AdminPanel({
               </tr>
             ))}
           </tbody>
-        </table>
+        </SortableTable>
       </div>
     </section>
   );

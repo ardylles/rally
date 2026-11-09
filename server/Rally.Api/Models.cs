@@ -81,3 +81,5 @@ public sealed record ExtraRoundsInput(int Revision, int Count, int? DurationMinu
 
 public sealed record GenerateMatchInput(int Revision, int Court);
 public sealed record ConfirmedRevisionInput(int Revision, bool Confirmed);
+
+public sealed record AddPlayerInput(int Revision,string Name,string Side,double? Skill,bool Regenerate,string? PartnerName=null,string PartnerSide="both");

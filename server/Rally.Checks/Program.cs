@@ -270,4 +270,23 @@ rejectSwap.Players.Single(p=>p.Id==rt.Teams[0][1]).Side="left";
 var rejectBefore=JsonSerializer.Serialize(rejectSwap);
 Reject(()=>MeetRules.Substitute(rejectSwap,rs,new(0,rs.Teams[0][0],rt.Teams[0][0])),"reject side conflict in reciprocal target match");
 Check(JsonSerializer.Serialize(rejectSwap)==rejectBefore,"failed reciprocal swap is atomic");
+foreach(var mode in new[]{"rotating","balanced","fixed","mixed"}) {
+ var original=Example(8,2,6,mode);Scheduler.Generate(original);
+ MeetRules.Result(original,original.Matches[0],new(0,[4,2],null));MeetRules.Start(original,original.Matches[1]);
+ var history=original.Matches.Where(x=>x.Status!="ready").ToDictionary(x=>x.Id,x=>JsonSerializer.Serialize(x));
+ var added=MeetRules.AddPlayer(original,new(0,"New player","both",3,true,"New partner"));
+ Check(added.Players.Count==8+(mode=="fixed"?2:1),mode+" new participants registered");
+ Check(history.All(kv=>JsonSerializer.Serialize(added.Matches.Single(x=>x.Id==kv.Key))==kv.Value),mode+" joining preserves results and live match");
+ Check(added.Matches.Any(x=>x.Status=="ready"&&x.Teams.SelectMany(t=>t).Contains(added.Players[8].Id)),mode+" new player scheduled");
+ var rosterOnly=MeetRules.AddPlayer(original,new(0,"Roster only","both",3,false,"Roster partner"));
+ Check(JsonSerializer.Serialize(rosterOnly.Matches)==JsonSerializer.Serialize(original.Matches),mode+" roster-only leaves schedule unchanged");
+ Reject(()=>MeetRules.AddPlayer(original,new(0,"Player 0","both",3,true,"Other")),"duplicate addition rejected");
+}
+var fullRoster=Example(24,2,4,"rotating");Scheduler.Generate(fullRoster);
+Reject(()=>MeetRules.AddPlayer(fullRoster,new(0,"Overflow","both",null,false)),"roster limit enforced");
+var needSkill=Example(8,2,4,"balanced");Scheduler.Generate(needSkill);
+Reject(()=>MeetRules.AddPlayer(needSkill,new(0,"No skill","both",null,true)),"balanced addition requires skill");
+var fixedAdd=Example(8,2,4,"fixed");Scheduler.Generate(fixedAdd);
+Reject(()=>MeetRules.AddPlayer(fixedAdd,new(0,"Left one","left",null,true,"Left two","left")),"new fixed pair side compatibility enforced");
+Check(fixedAdd.Players.Count==8,"rejected addition leaves original roster intact");
 Console.WriteLine($"All {checks} checks passed.");

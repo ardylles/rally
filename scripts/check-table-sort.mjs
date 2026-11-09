@@ -1,0 +1,11 @@
+import assert from "node:assert/strict";
+import {compareCells} from "../web/src/tableSort.ts";
+assert.deepEqual(["10","2","1"].sort(compareCells),["1","2","10"]);
+assert.deepEqual(["-3","5","-10"].sort(compareCells),["-10","-3","5"]);
+assert.deepEqual(["90%","8%","100%"].sort(compareCells),["8%","90%","100%"]);
+assert.deepEqual(["Court 10","Court 2"].sort(compareCells),["Court 2","Court 10"]);
+assert.deepEqual(["—","3",""].sort(compareCells),["3","—",""]);
+assert.equal(compareCells("Alice","alice"),0);
+assert.ok(compareCells("2026-11-04","2026-10-31")>0);
+assert.ok(compareCells("1,000","99")>0);
+console.log("All 8 table sorting checks passed.");

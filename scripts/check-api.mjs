@@ -212,6 +212,19 @@ await stranger.request('/clubs/'+club.id+'/results','GET',undefined,403);
 await anonymous.request('/clubs/'+club.id+'/results','GET',undefined,401);
 check(true,'club results reject outsiders and anonymous access');
 
+let joinMeet=await owner.request('/clubs/'+club.id+'/meets','POST',input('rotating'));
+await member.request('/meets/'+joinMeet.id+'/players','POST',{revision:joinMeet.revision,name:'New arrival',side:'both',regenerate:true},403);
+const joinRevision=joinMeet.revision;
+joinMeet=await owner.request('/meets/'+joinMeet.id+'/players','POST',{revision:joinMeet.revision,name:'New arrival',side:'both',regenerate:true});
+const joined=joinMeet.players.find(p=>p.name==='New arrival');
+check(joinMeet.players.length===11&&joinMeet.matches.some(m=>m.teams.flat().includes(joined.id)),'new player is registered and scheduled through API');
+await owner.request('/meets/'+joinMeet.id+'/players','POST',{revision:joinRevision,name:'Stale arrival',side:'both',regenerate:false},409);
+check((await owner.request('/meets/'+joinMeet.id)).players.length===11,'new player persists and stale addition is rejected');
+const joinMatches=JSON.stringify(joinMeet.matches);
+joinMeet=await owner.request('/meets/'+joinMeet.id+'/players','POST',{revision:joinMeet.revision,name:'Roster arrival',side:'both',regenerate:false});
+check(JSON.stringify(joinMeet.matches)===joinMatches,'roster-only API addition preserves every match');
+check((await owner.request('/meets/'+joinMeet.id+'/audit')).some(a=>a.action==='player-added'),'player addition audited');
+
 if(process.env.RALLY_TEST_ADMIN_DLL){
  // Elevated fixtures are allowed only against the dedicated local test database.
  assert.equal(new URL(base).hostname,'127.0.0.1');

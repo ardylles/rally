@@ -1,3 +1,4 @@
+import {SortableTable} from "./SortableTable";
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import { standings, inPeriod } from "./results";
@@ -5,7 +6,7 @@ import type { ResultMeet, Standing } from "./results";
 function ResultsTable({ rows }: { rows: Standing[] }) {
   return rows.length ? (
     <div className="table-wrap">
-      <table>
+      <SortableTable>
         <thead>
           <tr>
             {[
@@ -50,7 +51,7 @@ function ResultsTable({ rows }: { rows: Standing[] }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </SortableTable>
     </div>
   ) : (
     <p className="empty">No completed matches in this period yet.</p>
@@ -151,7 +152,7 @@ export function ClubResults({
           <p>No meets in this period.</p>
         ) : (
           <div className="table-wrap">
-            <table>
+            <SortableTable>
               <thead>
                 <tr>
                   <th>Date</th>
@@ -191,7 +192,7 @@ export function ClubResults({
                   );
                 })}
               </tbody>
-            </table>
+            </SortableTable>
           </div>
         )}
       </section>

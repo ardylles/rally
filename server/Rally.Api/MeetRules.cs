@@ -60,6 +60,21 @@ public static class MeetRules {
  }
  public static void ValidateSkill(double skill)=>Require(double.IsFinite(skill)&&skill>=1&&skill<=5&&skill*2==Math.Truncate(skill*2),"Skill must be 1–5 in steps of 0.5.");
  public static Match Find(Meet m,string id)=>m.Matches.FirstOrDefault(x=>x.Id==id)??throw new RuleException("Match not found.",404);
+ public static Meet AddPlayer(Meet original,AddPlayerInput input) {
+  var m=System.Text.Json.JsonSerializer.Deserialize<Meet>(System.Text.Json.JsonSerializer.Serialize(original,Json.Options),Json.Options)!;
+  int count=m.Mode=="fixed"?2:1;
+  Require(m.Players.Count+count<=24,"A meet can have at most 24 players.");
+  Player NewPlayer(string? name,string side,double? skill) {
+   name=(name??"").Trim();Require(name.Length is >=1 and <=80,"Enter a player name of up to 80 characters.");
+   Require(!m.Players.Any(p=>p.Name.Equals(name,StringComparison.OrdinalIgnoreCase)),"That player is already registered.");ValidateSide(side);
+   if(skill.HasValue)ValidateSkill(skill.Value);if(m.Mode=="balanced")Require(skill.HasValue,"Enter the new player's skill.");
+   var player=new Player{Name=name,Side=side,Skill=skill,AvailableFromRound=RemainingRound(m)};m.Players.Add(player);return player;
+  }
+  var player=NewPlayer(input.Name,input.Side,input.Skill);
+  if(m.Mode=="fixed") {var partner=NewPlayer(input.PartnerName,input.PartnerSide,null);Require(Compatible(player,partner),"The new fixed pair needs compatible playing sides.");m.FixedPairs.Add([player.Id,partner.Id]);}
+  if(input.Regenerate)Scheduler.RegenerateRemaining(m);
+  return m;
+ }
  public static void CanGenerate(Meet m)=>Require(m.Players.All(p=>p.UnavailableFromRound==null&&p.AvailableFromRound==0)&&m.Matches.All(x=>x.Status=="ready"&&x.Changes.Count==0),"Regeneration is available before play or substitutions begin.");
  public static void Start(Meet m, Match match) {
   Require(m.Timing,"Timing is disabled for this meet.");

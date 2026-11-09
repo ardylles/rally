@@ -1,3 +1,4 @@
+import {SortableTable} from "./SortableTable";
 import { MeetResults, ClubResults } from "./ResultsPage";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
@@ -698,7 +699,9 @@ function Workspace() {
           setView("overview");
           setToast("Extra rounds added. Existing matches are unchanged.");
         }
-      } else if (kind === "arrival") {
+      } else if (kind === "addPlayer") {
+ await change("/players", {name:f.get("name"),side:f.get("side"),skill:f.get("skill")?Number(f.get("skill")):null,regenerate:f.get("regenerate")==="on",partnerName:f.get("partnerName"),partnerSide:f.get("partnerSide")||"both"});
+ } else if (kind === "arrival") {
         await change("/arrivals", {
           playerId: modal!.player!.id,
           fromRound: Number(f.get("fromRound")),
@@ -830,7 +833,7 @@ function Workspace() {
   function matchTable(matches: Match[]) {
     return (
       <div className="table-wrap">
-        <table>
+        <SortableTable>
           <thead>
             <tr>
               <th>COURT</th>
@@ -890,7 +893,7 @@ function Workspace() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </SortableTable>
       </div>
     );
   }
@@ -942,7 +945,7 @@ function Workspace() {
         ))}
         <h3 className="spaced-title">Optional statistics</h3>
         <div className="table-wrap">
-          <table className="stats-entry">
+          <SortableTable className="stats-entry">
             <thead>
               <tr>
                 <th>PLAYER</th>
@@ -993,7 +996,7 @@ function Workspace() {
                 );
               })}
             </tbody>
-          </table>
+          </SortableTable>
         </div>
         <p className="subtle">
           Padel ratio = winners − unforced errors. Blank means unknown; zero
@@ -1323,6 +1326,13 @@ function Workspace() {
                               className="court-card compact-court"
                               key={m.id}
                               aria-label={courtName(m.court)}
+                              tabIndex={m.status === "live" ? 0 : undefined}
+                              onClick={(event) => {
+                                if (m.status === "live" && !busy && !(event.target as HTMLElement).closest("button, a, input, select")) open("result", m);
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.target === event.currentTarget && m.status === "live" && !busy && (event.key === "Enter" || event.key === " ")) {event.preventDefault();open("result", m);}
+                              }}
                             >
                               <header className="compact-court-heading">
                                 <h3>{courtName(m.court)}</h3>
@@ -1605,7 +1615,8 @@ function Workspace() {
                             Choose fixed pairs
                           </Button>
                         )}
-                        <Button primary onClick={() => open("replace")}>
+                        <Button primary onClick={() => open("addPlayer")}>Add player</Button>
+                        <Button onClick={() => open("replace")}>
                           Add replacement player
                         </Button>
                       </div>
@@ -1616,7 +1627,7 @@ function Workspace() {
                     {modes[meet.mode]}
                   </p>
                   <div className="table-wrap">
-                    <table>
+                    <SortableTable>
                       <thead>
                         <tr>
                           <th>PLAYER</th>
@@ -1741,7 +1752,7 @@ function Workspace() {
                           );
                         })}
                       </tbody>
-                    </table>
+                    </SortableTable>
                   </div>
                   <div className="hint spaced">
                     New players are registered here. Substitute any existing
@@ -1776,7 +1787,7 @@ function Workspace() {
                         </h3>
                         {matchTable([m])}
                         <div className="table-wrap spaced">
-                          <table>
+                          <SortableTable>
                             <thead>
                               <tr>
                                 <th>PLAYER</th>
@@ -1795,7 +1806,7 @@ function Workspace() {
                                 </tr>
                               ))}
                             </tbody>
-                          </table>
+                          </SortableTable>
                         </div>
                       </section>
                     ))
@@ -1906,6 +1917,7 @@ function Workspace() {
               result: "Match result",
               substitute: "Substitute for this match",
               replace: "Add a replacement player",
+              addPlayer: "Add player to meet",
               departure: "Player leaving early",
               arrival: "Late player / arrival",
               side: "Playing side",
@@ -2573,7 +2585,16 @@ function Workspace() {
               </p>
             </>
           )}
-          {modal.kind === "replace" && (
+          {modal.kind === "addPlayer" && meet && <>
+ <p className="hint">Add someone without replacing an existing player. Regeneration preserves started and completed matches and explicit substitutions. New players receive a fair share from the current round onward.</p>
+ <Field label="New player's name"><input name="name" required maxLength={80}/></Field>
+ <Field label="Playing side"><select name="side" defaultValue="both"><option value="both">Both</option><option value="left">Left only</option><option value="right">Right only</option></select></Field>
+ {meet.mode==="balanced"&&<Field label="Skill"><input type="number" name="skill" min="1" max="5" step="0.5" required/></Field>}
+ {meet.mode==="fixed"&&<><p>Fixed-partner meets add a new pair together.</p><Field label="New partner's name"><input name="partnerName" required maxLength={80}/></Field><Field label="Partner's playing side"><select name="partnerSide" defaultValue="both"><option value="both">Both</option><option value="left">Left only</option><option value="right">Right only</option></select></Field></>}
+ <label><input type="checkbox" name="regenerate" defaultChecked/> Regenerate remaining matches now</label>
+ <p className="subtle">Uncheck to add to the roster only, then use Regenerate remaining or generate extra matches later.</p>
+ </>}
+ {modal.kind === "replace" && (
             <>
               <div className="hint">
                 Register a new player for the next unstarted match or remaining

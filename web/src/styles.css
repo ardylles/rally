@@ -1950,3 +1950,7 @@ footer b {
 .error p {
   margin-top: 8px;
 }
+
+.sort-heading { display: inline-flex; align-items: center; gap: .3rem; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; padding: .25rem 0; cursor: pointer; white-space: nowrap; }
+.sort-heading:focus-visible, .court-card[tabindex]:focus-visible { outline: 2px solid var(--accent, #26836b); outline-offset: 3px; }
+.court-card[tabindex] { cursor: pointer; }
