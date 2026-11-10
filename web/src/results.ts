@@ -1,6 +1,6 @@
 import type { Meet, Match, Player } from "./types";
 export type ResultMeet = Pick<Meet, "id" | "name" | "date" | "timezone"> & {
-  players: Pick<Player, "id" | "name" | "userId">[];
+  players: Pick<Player, "id" | "name" | "userId" | "clubPlayerId">[];
   matches: Pick<Match, "id" | "status" | "teams" | "score" | "stats">[];
 };
 export type Standing = {
@@ -22,16 +22,27 @@ export function standings(
   club = false,
   mergeNames = false,
 ): Standing[] {
+  const profilesByAccount = new Map<string, Set<string>>();
+  for (const meet of meets) for (const player of meet.players) {
+    if (!player.userId || !player.clubPlayerId) continue;
+    const profiles = profilesByAccount.get(player.userId) ?? new Set<string>();
+    profiles.add(player.clubPlayerId);
+    profilesByAccount.set(player.userId, profiles);
+  }
   const rows = new Map<string, Standing>();
   for (const meet of meets) {
     const keys = new Map<string, string>();
     for (const p of meet.players) {
+      const accountProfiles = p.userId ? profilesByAccount.get(p.userId) : undefined;
+      const profileId = p.clubPlayerId ?? (accountProfiles?.size === 1 ? [...accountProfiles][0] : null);
       const key = club
-        ? p.userId
-          ? "user:" + p.userId
-          : mergeNames
-            ? "name:" + p.name.trim().toLocaleLowerCase()
-            : "meet:" + meet.id + ":" + p.id
+        ? profileId
+          ? "profile:" + profileId
+          : p.userId
+            ? "user:" + p.userId
+            : mergeNames
+              ? "name:" + p.name.trim().toLocaleLowerCase()
+              : "meet:" + meet.id + ":" + p.id
         : p.id;
       keys.set(p.id, key);
       if (!rows.has(key))

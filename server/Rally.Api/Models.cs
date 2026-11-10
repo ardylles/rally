@@ -32,6 +32,8 @@ public sealed class Player {
  public string Side { get; set; } = "both";
  public double? Skill { get; set; }
  public string? UserId { get; set; }
+ public string? ClubPlayerId { get; set; }
+ public string? ReclubProfileUrl { get; set; }
  public int? UnavailableFromRound { get; set; }
  public int AvailableFromRound { get; set; }
  public bool MatchOnlyReplacement { get; set; }
@@ -54,7 +56,7 @@ public sealed class Match {
 }
 public sealed class PlayerStats { public int? Winners { get; set; } public int? UnforcedErrors { get; set; } public int? PadelRatio => Winners.HasValue && UnforcedErrors.HasValue ? Winners-UnforcedErrors : null; }
 public sealed record PlayerChange(string OutgoingId, string IncomingId, string Scope, string Source, DateTimeOffset At);
-public sealed record Credentials(string Name, string Email, string Password);
+public sealed record Credentials(string Name, string Email, string Password, bool RememberMe = false);
 public sealed record ClubInput(string Name);
 public sealed record MemberInput(string Email, string Role);
 public sealed record RoleInput(string UserId, string Role);
@@ -83,3 +85,6 @@ public sealed record GenerateMatchInput(int Revision, int Court);
 public sealed record ConfirmedRevisionInput(int Revision, bool Confirmed);
 
 public sealed record AddPlayerInput(int Revision,string Name,string Side,double? Skill,bool Regenerate,string? PartnerName=null,string PartnerSide="both");
+
+public sealed record AddClubPlayersInput(int Revision,string[] ProfileIds,bool Regenerate=true);
+public sealed record AssignClubPlayerInput(int Revision,string ClubPlayerId);

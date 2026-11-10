@@ -140,7 +140,7 @@ export function ClubResults({
           {note} Weeks start Monday; dates follow each meet’s time zone.
         </p>
         <p className="subtle">
-          Linked accounts are combined across meets. Unlinked players with the
+          Club profiles and linked accounts are combined across meets. Unlinked players with the
           same name are combined within this club; use distinct names for
           different people.
         </p>

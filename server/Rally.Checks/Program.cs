@@ -295,4 +295,9 @@ Check(ReclubScraper.Code("https://reclub.co/zh-TW/m/K3YK9M")=="K3YK9M","regional
 Reject(()=>ReclubScraper.Code("https://reclub.co/id/other/K3YK9M"),"localized non-meet path rejected");
 Reject(()=>ReclubScraper.Code("https://evil.test/id/m/K3YK9M"),"localized external host rejected");
 if(args.Length>1){var localized=ReclubScraper.Parse(File.ReadAllText(args[1]),"K3YK9M");Check(localized.Players.Count>0,"live Indonesian sample roster parsed");var fetched=await ReclubScraper.Fetch("https://reclub.co/id/m/K3YK9M",CancellationToken.None);Check(fetched.Players.Count>0,"localized sample URL fetched and imported end to end");Console.WriteLine($"Imported {fetched.Players.Count} participants from localized sample.");}
+Check(ClubPlayers.ProfileUrl("https://reclub.co/id/players/@Example/?share=1")=="https://reclub.co/players/@example","profile links normalize locale and username");
+Reject(()=>ClubPlayers.ProfileUrl("https://reclub.co.evil.test/players/@test"),"profile links reject external hosts");
+Reject(()=>ClubPlayers.ProfileUrl("https://reclub.co/m/TEST12"),"meet links cannot be used as player profiles");
+Reject(()=>ClubPlayers.Photo("data:image/svg+xml;base64,PHN2Zy8+"),"profile photos reject SVG");
+Reject(()=>ClubPlayers.Photo("data:image/png;base64,"+Convert.ToBase64String(new byte[20])),"profile photos verify signature");
 Console.WriteLine($"All {checks} checks passed.");

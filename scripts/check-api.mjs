@@ -3,10 +3,10 @@ import {writeFile} from 'node:fs/promises';
 const base=process.env.RALLY_URL||'http://127.0.0.1:5080';let passed=0;
 function check(value,label){assert.ok(value,label);passed++;console.log('PASS:',label)}
 class Client{
- cookie='';
+ cookie=''; lastCookies=[];
  async request(path,method='GET',body,status=200){
   const r=await fetch(base+'/api'+path,{method,headers:{'Content-Type':'application/json','X-Rally-Request':'1',...(this.cookie?{Cookie:this.cookie}:{})},body:body===undefined?undefined:JSON.stringify(body)});
-  const set=r.headers.getSetCookie();if(set.length)this.cookie=set.map(x=>x.split(';')[0]).join('; ');
+  const set=r.headers.getSetCookie();this.lastCookies=set;if(set.length)this.cookie=set.map(x=>x.split(';')[0]).join('; ');
   const text=await r.text();let data;try{data=JSON.parse(text)}catch{data=text}
   assert.equal(r.status,status,method+' '+path+': '+JSON.stringify(data).slice(0,400));return data;
  }
@@ -92,6 +92,20 @@ await owner.request('/auth/logout','POST',undefined,204);
 await owner.request('/clubs','GET',undefined,401);
 await owner.request('/auth/login','POST',{name:'',email:u.email,password});
 check((await owner.request('/meets/'+m.id)).matches.some(x=>x.status==='done'),'sign out/in retains history');
+check(owner.lastCookies.length===0,'read request does not unnecessarily replace login cookie');
+await owner.request('/auth/login','POST',{email:u.email,password,rememberMe:true});
+const persistent=owner.lastCookies.find(c=>c.startsWith('rally.session='));
+const expiry=persistent?.match(/expires=([^;]+)/i)?.[1];
+check(!!expiry&&Date.parse(expiry)>Date.now()+29*86400000&&Date.parse(expiry)<Date.now()+31*86400000&&/httponly/i.test(persistent),'remember me creates protected 30-day persistent cookie');
+await owner.request('/auth/login','POST',{email:u.email,password,rememberMe:false});
+check(owner.lastCookies.some(c=>c.startsWith('rally.session=')&&!/expires=|max-age=/i.test(c)),'unchecked login replaces persistent cookie with session cookie');
+await owner.request('/auth/login','POST',{email:u.email,password,rememberMe:true});
+await owner.request('/auth/logout','POST',undefined,204);
+check(owner.lastCookies.some(c=>c.startsWith('rally.session=')&&/expires=/i.test(c)),'logout clears remembered cookie');
+await owner.request('/auth/me','GET',undefined,401);
+await owner.request('/auth/login','POST',{email:u.email,password});
+check(owner.lastCookies.some(c=>c.startsWith('rally.session=')&&!/expires=|max-age=/i.test(c)),'omitted remember-me defaults to session cookie');
+
 
 // Attendance, strict sides and public viewing work through the same revision-protected API.
 let arrival=await owner.request('/clubs/'+club.id+'/meets','POST',input('rotating'));
@@ -225,6 +239,59 @@ joinMeet=await owner.request('/meets/'+joinMeet.id+'/players','POST',{revision:j
 check(JSON.stringify(joinMeet.matches)===joinMatches,'roster-only API addition preserves every match');
 check((await owner.request('/meets/'+joinMeet.id+'/audit')).some(a=>a.action==='player-added'),'player addition audited');
 
+// Club profiles can exist before accounts and are always scoped to one club.
+const profileInput={revision:0,name:'Club display name',reclubUrl:'https://reclub.co/id/players/@club-test',reclubName:'Reclub nickname',side:'left',skill:3.5};
+await member.request('/clubs/'+club.id+'/players','POST',profileInput,403);
+await stranger.request('/clubs/'+club.id+'/players','GET',undefined,403);
+await anonymous.request('/clubs/'+club.id+'/players','GET',undefined,401);
+let clubProfile=await owner.request('/clubs/'+club.id+'/players','POST',profileInput);
+check(clubProfile.name==='Club display name'&&clubProfile.userId===null&&clubProfile.reclubUrl==='https://reclub.co/players/@club-test','club profile created before account with normalized Reclub link');
+await owner.request('/clubs/'+club.id+'/players','POST',profileInput,409);
+await owner.request('/clubs/'+club.id+'/players','POST',{...profileInput,reclubUrl:'https://example.com/players/@test'},400);
+await owner.request('/clubs/'+club.id+'/players','POST',{...profileInput,reclubUrl:null,side:'preference'},400);
+await owner.request('/clubs/'+club.id+'/players','POST',{...profileInput,reclubUrl:null,skill:9},400);
+check(true,'duplicate Reclub identity invalid URLs sides and skills rejected');
+const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+clubProfile=await owner.request('/clubs/'+club.id+'/players/'+clubProfile.id,'PUT',{...profileInput,revision:clubProfile.revision,photoData:png});
+const imageResponse=await fetch(base+clubProfile.photoUrl,{headers:{Cookie:owner.cookie}});
+check(imageResponse.status===200&&imageResponse.headers.get('content-type').startsWith('image/png')&&(await imageResponse.arrayBuffer()).byteLength>0,'club profile photo saved and served as image');
+await stranger.request('/clubs/'+club.id+'/players/'+clubProfile.id+'/photo','GET',undefined,403);
+await owner.request('/clubs/'+club.id+'/players/'+clubProfile.id,'PUT',{...profileInput,revision:1},409);
+await owner.request('/clubs/'+club.id+'/players/'+clubProfile.id,'PUT',{...profileInput,revision:clubProfile.revision,photoData:'data:image/svg+xml;base64,PHN2Zy8+'},400);
+check(true,'photos require club membership and updates enforce revision and image type');
+await owner.request('/clubs/'+club.id+'/players/'+clubProfile.id+'/account','PUT',{revision:clubProfile.revision,email:'not-registered@example.test'},400);
+const profileAccount=new Client();
+const profileUser=await profileAccount.request('/auth/register','POST',{name:'Account name',email:'profile-'+suffix+'@example.test',password});
+await member.request('/clubs/'+club.id+'/players/'+clubProfile.id+'/account','PUT',{revision:clubProfile.revision,email:profileUser.email},403);
+clubProfile=await owner.request('/clubs/'+club.id+'/players/'+clubProfile.id+'/account','PUT',{revision:clubProfile.revision,email:profileUser.email});
+check(clubProfile.userId===profileUser.id&&clubProfile.email===profileUser.email&&(await profileAccount.request('/clubs')).some(c=>c.id===club.id&&c.role==='member'),'organizer links registered account and grants ordinary membership');
+check((await member.request('/clubs/'+club.id+'/players')).find(p=>p.id===clubProfile.id).email===null,'profile directory hides linked emails from ordinary members');
+await owner.request('/clubs/'+club.id+'/players/'+clubProfile.id+'/account','PUT',{revision:1,email:null},409);
+let profileMeetInput=input('rotating');profileMeetInput.players[0]={...profileMeetInput.players[0],clubPlayerId:clubProfile.id,userId:'forged',name:'Ignored name',side:'right',skill:1};
+let profileMeet=await owner.request('/clubs/'+club.id+'/meets','POST',profileMeetInput);
+check(profileMeet.players[0].name===clubProfile.name&&profileMeet.players[0].side==='left'&&profileMeet.players[0].skill===3.5&&profileMeet.players[0].userId===profileUser.id,'meet creation resolves trusted profile identity and defaults');
+let reclubMeetInput=input('balanced');reclubMeetInput.players[0]={...reclubMeetInput.players[0],reclubProfileUrl:'https://reclub.co/id/players/@club-test'};
+const reclubProfileMeet=await owner.request('/clubs/'+club.id+'/meets','POST',reclubMeetInput);
+check(reclubProfileMeet.players[0].clubPlayerId===clubProfile.id&&reclubProfileMeet.players[0].name===clubProfile.name,'Reclub profile match uses club display name');
+await owner.request('/clubs/'+club.id+'/meets','POST',{...profileMeetInput,players:profileMeetInput.players.map((p,i)=>i===1?{...p,clubPlayerId:clubProfile.id}:p)},400);
+const foreignClub=await stranger.request('/clubs','POST',{name:'Other profile club'});
+await stranger.request('/clubs/'+foreignClub.id+'/meets','POST',profileMeetInput,400);
+check(true,'duplicate and foreign club profile assignments rejected');
+let additionalProfile=await owner.request('/clubs/'+club.id+'/players','POST',{...profileInput,name:'Another club player',reclubUrl:null,side:'both'});
+const priorHistory=JSON.stringify(profileMeet.matches);
+profileMeet=await owner.request('/meets/'+profileMeet.id+'/club-players','POST',{revision:profileMeet.revision,profileIds:[additionalProfile.id],regenerate:false});
+check(profileMeet.players.at(-1).clubPlayerId===additionalProfile.id&&JSON.stringify(profileMeet.matches)===priorHistory,'saved club profile can join an existing meet without replacing anyone');
+await owner.request('/meets/'+profileMeet.id+'/club-players','POST',{revision:profileMeet.revision,profileIds:[additionalProfile.id]},400);
+const originalNames=profileMeet.players.map(p=>p.name);
+const connectProfile=await owner.request('/clubs/'+club.id+'/players','POST',{...profileInput,name:'Historical player',reclubUrl:null});
+profileMeet=await owner.request('/meets/'+profileMeet.id+'/players/'+profileMeet.players[1].id+'/profile','PUT',{revision:profileMeet.revision,clubPlayerId:connectProfile.id});
+check(profileMeet.players[1].clubPlayerId===connectProfile.id&&JSON.stringify(profileMeet.matches)===priorHistory&&JSON.stringify(profileMeet.players.map(p=>p.name))===JSON.stringify(originalNames),'existing meet identity can be linked without rewriting history');
+const stableProfileId=clubProfile.id;
+clubProfile=await owner.request('/clubs/'+club.id+'/players/'+clubProfile.id,'PUT',{...profileInput,revision:clubProfile.revision,name:'Updated club name',photoData:''});
+check(clubProfile.photoUrl===null&&(await owner.request('/meets/'+profileMeet.id)).players[0].name==='Club display name','profile edits and photo removal preserve past meet names');
+clubProfile=await owner.request('/clubs/'+club.id+'/players/'+clubProfile.id+'/account','PUT',{revision:clubProfile.revision,email:null});
+check(clubProfile.userId===null&&clubProfile.id===stableProfileId&&(await profileAccount.request('/clubs')).some(c=>c.id===club.id),'unlink preserves profile identity and existing club membership');
+
 if(process.env.RALLY_TEST_ADMIN_DLL){
  // Elevated fixtures are allowed only against the dedicated local test database.
  assert.equal(new URL(base).hostname,'127.0.0.1');
@@ -254,11 +321,15 @@ if(process.env.RALLY_TEST_ADMIN_DLL){
  await disabledClient.request('/clubs/'+ownedClub.id+'/members','POST',{email:au.email,role:'organizer'},204);
  // Seed an account link (account linking has no public endpoint yet).
  execFileSync('C:/Program Files/PostgreSQL/17/bin/psql.exe',['-h','127.0.0.1','-p','55432','-U','rally','-d','rally_features_20261102','-v','ON_ERROR_STOP=1','-c',"UPDATE meets SET document=jsonb_set(document,'{players,0,userId}',to_jsonb('"+du.id+"'::text)) WHERE id='"+owned.id+"'"],{env:{...process.env,PGPASSWORD:process.env.Database__Password},stdio:'pipe'});
+ const retainedProfile=await disabledClient.request('/clubs/'+ownedClub.id+'/players','POST',{revision:0,name:'Retained club player',side:'both',skill:3});
+ await disabledClient.request('/clubs/'+ownedClub.id+'/players/'+retainedProfile.id+'/account','PUT',{revision:retainedProfile.revision,email:du.email});
  const deleteCookie=disabledClient.cookie;
  await admin.request('/admin/users/'+du.id,'DELETE',undefined,204);
  disabledClient.cookie=deleteCookie;await disabledClient.request('/auth/me','GET',undefined,401);
  const retained=await admin.request('/meets/'+owned.id);
  check(retained.players[0].userId===null&&retained.players.every((p,i)=>p.name===owned.players[i].name)&&JSON.stringify(retained.matches)===JSON.stringify(owned.matches),'account deletion detaches links and preserves participant names matches and statistics');
+ const retainedClubProfile=(await admin.request('/clubs/'+ownedClub.id+'/players')).find(p=>p.id===retainedProfile.id);
+ check(retainedClubProfile.userId===null&&retainedClubProfile.name==='Retained club player','account deletion retains club profile and detaches linked email');
  const oldAudit=await admin.request('/meets/'+owned.id+'/audit');
  check(oldAudit.some(a=>a.actor==='Retained participant'),'deleted account audit retains actor display name');
  await admin.request('/admin/meets/'+arrival.id,'DELETE',undefined,204);

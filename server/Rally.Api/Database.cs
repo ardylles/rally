@@ -15,7 +15,8 @@ public sealed class Database(NpgsqlDataSource source) {
   await using var c=await Open();await using var tx=await c.BeginTransactionAsync();
   await using(var migrationLock=Command(c,"SELECT pg_advisory_xact_lock(784243993)"))await migrationLock.ExecuteNonQueryAsync();
   await using var cmd=Command(c,Schema);await cmd.ExecuteNonQueryAsync();
-  await using var migration=Command(c,Migration2);await migration.ExecuteNonQueryAsync();await tx.CommitAsync();
+  await using var migration=Command(c,Migration2);await migration.ExecuteNonQueryAsync();
+  await using var profiles=Command(c,Migration3);await profiles.ExecuteNonQueryAsync();await tx.CommitAsync();
  }
  public async Task<Meet> GetMeet(string id) {
   var rows=await Query("SELECT document::text AS document,revision FROM meets WHERE id=@id",("id",id));
@@ -34,6 +35,24 @@ public sealed class Database(NpgsqlDataSource source) {
   if(publicToken!=null){await using var share=Command(c,"UPDATE meets SET public_token=@token WHERE id=@id",("token",publicToken),("id",m.Id));await share.ExecuteNonQueryAsync();}
   await using var audit=Command(c,"INSERT INTO audit_events(meet_id,actor_id,actor_name,action,previous_document,revision) VALUES(@id,@actor,(SELECT name FROM users WHERE id=@actor),@action,@before::jsonb,@version)",("id",m.Id),("actor",actor),("action",action),("before",before),("version",version));await audit.ExecuteNonQueryAsync();await tx.CommitAsync();
  }
+
+ public const string Migration3="""
+ CREATE TABLE IF NOT EXISTS club_players(
+  id text PRIMARY KEY,club_id text NOT NULL REFERENCES clubs(id),
+  user_id text REFERENCES users(id) ON DELETE SET NULL,
+  revision integer NOT NULL DEFAULT 1,name text NOT NULL,
+  reclub_url text, reclub_name text NOT NULL DEFAULT '',
+  side text NOT NULL DEFAULT 'both' CHECK(side IN ('left','right','both')),
+  skill double precision, photo text,
+  UNIQUE(club_id,reclub_url),UNIQUE(club_id,user_id));
+ CREATE INDEX IF NOT EXISTS club_players_club_idx ON club_players(club_id);
+ CREATE TABLE IF NOT EXISTS club_player_audit(
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  club_id text NOT NULL REFERENCES clubs(id),player_id text NOT NULL REFERENCES club_players(id),
+  actor_id text REFERENCES users(id) ON DELETE SET NULL,action text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now());
+ INSERT INTO schema_versions(version) VALUES(3) ON CONFLICT DO NOTHING;
+ """;
  public const string Migration2="""
  DO $migration$ BEGIN
  IF NOT EXISTS(SELECT 1 FROM schema_versions WHERE version=2) THEN

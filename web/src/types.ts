@@ -12,6 +12,8 @@ export type Player = {
   side?: "left" | "right" | "both";
   skill: number | null;
   userId: string | null;
+  clubPlayerId?: string | null;
+  reclubProfileUrl?: string | null;
   unavailableFromRound?: number | null;
   availableFromRound?: number;
   matchOnlyReplacement?: boolean;
@@ -64,3 +66,16 @@ export type MeetSummary = Pick<
   Meet,
   "id" | "name" | "date" | "mode" | "revision"
 > & { canManage: boolean };
+
+export type ClubPlayer = {
+  id: string;
+  revision: number;
+  name: string;
+  reclubUrl: string | null;
+  reclubName: string;
+  side: "left" | "right" | "both";
+  skill: number | null;
+  userId: string | null;
+  email: string | null;
+  photoUrl: string | null;
+};

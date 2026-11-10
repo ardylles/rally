@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 namespace Rally;
-public sealed record ReclubPlayer(string Id,string Name,int Status);
+public sealed record ReclubPlayer(string Id,string Name,int Status,string? ProfileUrl=null);
 public sealed record ReclubPreview(string Url,string Name,List<ReclubPlayer> Players);
 public static class ReclubScraper {
  public static string Code(string url) {
@@ -51,16 +51,17 @@ public static class ReclubScraper {
    var result=new List<ReclubPlayer>();
    foreach(var participantRef in Prop(meet,"participants").EnumerateArray()) {
     var participant=Ref(participantRef);var reference=Prop(participant,"referenceId");
-    string id,name;
+    string id,name;string? profileUrl=null;
     if(reference.ValueKind==JsonValueKind.Number&&users.TryGetProperty(reference.ToString(),out var userRef)) {
      var user=Ref(userRef);id=reference.ToString();name=Prop(user,"name").GetString()??"";
+     if(user.TryGetProperty("username",out var usernameRef)&&Ref(usernameRef).ValueKind==JsonValueKind.String){var username=Ref(usernameRef).GetString();if(!string.IsNullOrWhiteSpace(username)&&Regex.IsMatch(username.TrimStart('@'),@"^[A-Za-z0-9._-]{1,100}$"))profileUrl=ClubPlayers.ProfileUrl("https://reclub.co/players/@"+username.TrimStart('@'));}
     } else {
      var external=Prop(participant,"externalReference");
      if(external.ValueKind!=JsonValueKind.Object)continue;
      name=Prop(external,"name").GetString()??"";id="guest:"+Prop(participant,"id").GetString();
     }
     if(name.Trim().Length is >0 and <=80)
-     result.Add(new(id,name.Trim(),Prop(participant,"status").GetInt32()));
+     result.Add(new(id,name.Trim(),Prop(participant,"status").GetInt32(),profileUrl));
    }
    if(result.Count==0)throw new FormatException();
    return new("https://reclub.co/m/"+code,Prop(meet,"name").GetString()??"Reclub meet",result.DistinctBy(p=>p.Id).ToList());

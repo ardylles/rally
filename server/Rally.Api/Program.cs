@@ -55,7 +55,7 @@ async Task<string> ClubRole(Database db,string club,string user) {var rows=await
 async Task RequireClub(Database db,string club,string user){MeetRules.Require(await ClubRole(db,club,user)=="organizer","Club organizer access required.",403);}
 async Task<bool> CanManage(Database db,Meet m,string user){var role=await ClubRole(db,m.ClubId,user);if(role=="organizer")return true;return (await db.Query("SELECT 1 FROM meet_organizers WHERE meet_id=@meet AND user_id=@user",("meet",m.Id),("user",user))).Count>0;}
 async Task<Meet> Managed(Database db,string id,string user){var m=await db.GetMeet(id);MeetRules.Require(await CanManage(db,m,user),"Meet organizer access required.",403);return m;}
-async Task SignIn(HttpContext ctx,string id,string name,int version=0){await ctx.SignInAsync(new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier,id),new Claim(ClaimTypes.Name,name),new Claim("session_version",version.ToString())],CookieAuthenticationDefaults.AuthenticationScheme)));}
+async Task SignIn(HttpContext ctx,string id,string name,int version=0,bool rememberMe=false){await ctx.SignInAsync(new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier,id),new Claim(ClaimTypes.Name,name),new Claim("session_version",version.ToString())],CookieAuthenticationDefaults.AuthenticationScheme)),new AuthenticationProperties{IsPersistent=rememberMe,ExpiresUtc=DateTimeOffset.UtcNow.AddDays(rememberMe?30:7)});}
 string Hash(string password){var salt=RandomNumberGenerator.GetBytes(16);var bytes=Rfc2898DeriveBytes.Pbkdf2(password,salt,210000,HashAlgorithmName.SHA256,32);return Convert.ToBase64String(salt)+"."+Convert.ToBase64String(bytes);}
 bool Verify(string password,string stored){var parts=stored.Split('.');return CryptographicOperations.FixedTimeEquals(Convert.FromBase64String(parts[1]),Rfc2898DeriveBytes.Pbkdf2(password,Convert.FromBase64String(parts[0]),210000,HashAlgorithmName.SHA256,32));}
 app.MapPost("/api/clubs/{club}/reclub/preview",async(string club,ReclubInput input,Database db,HttpContext ctx)=>{await RequireClub(db,club,UserId(ctx));return await ReclubScraper.Fetch(input.Url,ctx.RequestAborted);}).RequireAuthorization().RequireRateLimiting("auth");
@@ -71,7 +71,7 @@ app.MapPost("/api/auth/login",async(Credentials input,Database db,HttpContext ct
  MeetRules.Require(input.Password is {Length:>=1 and <=128},"Invalid email or password.",401);
  var rows=await db.Query("SELECT id,name,email,password_hash,is_admin,session_version FROM users WHERE email=@email AND NOT disabled",("email",(input.Email??"").Trim().ToLowerInvariant()));
  MeetRules.Require(rows.Count==1&&Verify(input.Password!,(string)rows[0]["password_hash"]!),"Invalid email or password.",401);
- var row=rows[0];await SignIn(ctx,(string)row["id"]!,(string)row["name"]!,(int)row["session_version"]!);return new UserInfo((string)row["id"]!,(string)row["name"]!,(string)row["email"]!,(bool)row["is_admin"]!);
+ var row=rows[0];await SignIn(ctx,(string)row["id"]!,(string)row["name"]!,(int)row["session_version"]!,input.RememberMe);return new UserInfo((string)row["id"]!,(string)row["name"]!,(string)row["email"]!,(bool)row["is_admin"]!);
 }).RequireRateLimiting("auth");
 app.MapPost("/api/auth/logout",async(HttpContext ctx)=>{await ctx.SignOutAsync();return Results.NoContent();});
 app.MapGet("/api/auth/me",async(Database db,HttpContext ctx)=>{var id=UserId(ctx);return (await db.Query("SELECT id,name,email,is_admin AS \"isAdmin\" FROM users WHERE id=@id",("id",id))).Single();}).RequireAuthorization();
@@ -83,6 +83,29 @@ api.MapPost("/clubs",async(ClubInput input,Database db,HttpContext ctx)=>{
  await using var cmd=Database.Command(c,"INSERT INTO clubs(id,name,created_by) VALUES(@id,@name,@user);INSERT INTO club_members(club_id,user_id,role) VALUES(@id,@user,'organizer')",("id",id),("name",name),("user",user));await cmd.ExecuteNonQueryAsync();await tx.CommitAsync();return new{id,name,role="organizer"};
 });
 api.MapGet("/clubs/{club}/members",async(string club,Database db,HttpContext ctx)=>{await ClubRole(db,club,UserId(ctx));return await db.Query("SELECT u.id,u.name,u.email,m.role FROM club_members m JOIN users u ON u.id=m.user_id WHERE m.club_id=@club ORDER BY u.name",("club",club));});
+api.MapGet("/clubs/{club}/players",async(string club,Database db,HttpContext ctx)=>{var role=await ClubRole(db,club,UserId(ctx));ctx.Response.Headers.CacheControl="no-store";return await ClubPlayers.List(db,club,role=="organizer");});
+api.MapPost("/clubs/{club}/players",async(string club,ClubPlayerInput input,Database db,HttpContext ctx)=>{var actor=UserId(ctx);await RequireClub(db,club,actor);var id=await ClubPlayers.Save(db,club,actor,null,input);return (await ClubPlayers.List(db,club,true)).Single(p=>p.Id==id);});
+api.MapPut("/clubs/{club}/players/{id}",async(string club,string id,ClubPlayerInput input,Database db,HttpContext ctx)=>{var actor=UserId(ctx);await RequireClub(db,club,actor);await ClubPlayers.Save(db,club,actor,id,input);return (await ClubPlayers.List(db,club,true)).Single(p=>p.Id==id);});
+api.MapPut("/clubs/{club}/players/{id}/account",async(string club,string id,LinkPlayerInput input,Database db,HttpContext ctx)=>{var actor=UserId(ctx);await RequireClub(db,club,actor);await ClubPlayers.Link(db,club,id,actor,input);return (await ClubPlayers.List(db,club,true)).Single(p=>p.Id==id);});
+api.MapGet("/clubs/{club}/players/{id}/photo",async(string club,string id,Database db,HttpContext ctx)=>{await ClubRole(db,club,UserId(ctx));var rows=await db.Query("SELECT photo FROM club_players WHERE id=@id AND club_id=@club",("id",id),("club",club));if(rows.Count!=1||rows[0]["photo"] is not string photo)return Results.NotFound();var image=ClubPlayers.Photo(photo);ctx.Response.Headers.CacheControl="private, no-store";ctx.Response.Headers["X-Content-Type-Options"]="nosniff";return Results.File(image.Bytes,image.Mime);});
+api.MapPost("/meets/{id}/club-players",async(string id,AddClubPlayersInput input,Database db,HttpContext ctx)=>{
+ var actor=UserId(ctx);var original=await Managed(db,id,actor);
+ MeetRules.Require(input.ProfileIds!=null&&input.ProfileIds.Length==(original.Mode=="fixed"?2:1)&&input.ProfileIds.Distinct().Count()==input.ProfileIds.Length,"Choose one club player, or two for a fixed pair.");
+ var profiles=await ClubPlayers.List(db,original.ClubId,false);
+ var selected=input.ProfileIds!.Select(pid=>profiles.SingleOrDefault(p=>p.Id==pid)??throw new RuleException("Club player not found.",404)).ToArray();
+ MeetRules.Require(selected.All(p=>original.Players.All(x=>x.ClubPlayerId!=p.Id)),"This club player is already in the meet.");
+ var m=MeetRules.AddPlayer(original,new(input.Revision,selected[0].Name,selected[0].Side,selected[0].Skill,input.Regenerate,selected.Length>1?selected[1].Name:null,selected.Length>1?selected[1].Side:"both"));
+ for(int i=0;i<selected.Length;i++){var p=m.Players[original.Players.Count+i];p.ClubPlayerId=selected[i].Id;p.UserId=selected[i].UserId;p.ReclubProfileUrl=selected[i].ReclubUrl;}
+ await db.Save(m,input.Revision,actor,"club-player-added");return m;
+});
+api.MapPut("/meets/{id}/players/{playerId}/profile",async(string id,string playerId,AssignClubPlayerInput input,Database db,HttpContext ctx)=>{
+ var actor=UserId(ctx);var m=await db.GetMeet(id);await RequireClub(db,m.ClubId,actor);
+ var p=m.Players.SingleOrDefault(p=>p.Id==playerId)??throw new RuleException("Meet player not found.",404);
+ var profile=(await ClubPlayers.List(db,m.ClubId,false)).SingleOrDefault(x=>x.Id==input.ClubPlayerId)??throw new RuleException("Club player not found.",404);
+ MeetRules.Require(m.Players.All(x=>x.Id==p.Id||x.ClubPlayerId!=profile.Id),"This profile is already linked to another player in the meet.");
+ p.ClubPlayerId=profile.Id;p.UserId=profile.UserId;p.ReclubProfileUrl=profile.ReclubUrl;
+ await db.Save(m,input.Revision,actor,"club-player-linked");return m;
+});
 api.MapPost("/clubs/{club}/members",async(string club,MemberInput input,Database db,HttpContext ctx)=>{
  await RequireClub(db,club,UserId(ctx));MeetRules.Require(input.Role is "member" or "organizer","Choose a role.");var rows=await db.Query("SELECT id FROM users WHERE email=@email",("email",input.Email.Trim().ToLowerInvariant()));MeetRules.Require(rows.Count==1,"This person needs to register an account first.");var user=(string)rows[0]["id"]!;
  await db.Execute("INSERT INTO club_members(club_id,user_id,role) VALUES(@club,@user,@role)",("club",club),("user",user),("role",input.Role));return Results.NoContent();
@@ -101,19 +124,19 @@ api.MapGet("/clubs/{club}/meets",async(string club,Database db,HttpContext ctx)=
 api.MapGet("/clubs/{club}/results",async(string club,Database db,HttpContext ctx)=>{
  await ClubRole(db,club,UserId(ctx));ctx.Response.Headers.CacheControl="no-store";
  var rows=await db.Query("SELECT document::text AS document FROM meets WHERE club_id=@club ORDER BY document->>'date' DESC",("club",club));
- return rows.Select(row=>{var m=JsonSerializer.Deserialize<Meet>((string)row["document"]!,Json.Options)!;return new {m.Id,m.Name,m.Date,m.Timezone,players=m.Players.Select(p=>new{p.Id,p.Name,p.UserId}),matches=m.Matches.Select(x=>new{x.Id,x.Status,x.Teams,x.Score,x.Stats})};});
+ return rows.Select(row=>{var m=JsonSerializer.Deserialize<Meet>((string)row["document"]!,Json.Options)!;return new {m.Id,m.Name,m.Date,m.Timezone,players=m.Players.Select(p=>new{p.Id,p.Name,p.UserId,p.ClubPlayerId}),matches=m.Matches.Select(x=>new{x.Id,x.Status,x.Teams,x.Score,x.Stats})};});
 });
 api.MapPost("/clubs/{club}/meets",async(string club,Meet input,Database db,HttpContext ctx)=>{
  var user=UserId(ctx);await RequireClub(db,club,user);input.Id=Guid.NewGuid().ToString("N");input.ClubId=club;input.Revision=1;input.CreatedAt=DateTimeOffset.UtcNow;input.Matches=[];input.PublicEnabled=false;
  // Client player identifiers are meet-local, not account ownership claims.
  input.Players ??= []; MeetRules.Require(input.Players.All(p=>p!=null),"Invalid player record.");
- foreach(var p in input.Players)p.UserId=null;
+ await ClubPlayers.Resolve(db,input);
  Scheduler.Generate(input);
  await db.Execute("INSERT INTO meets(id,club_id,created_by,revision,document) VALUES(@id,@club,@user,1,@doc::jsonb)",("id",input.Id),("club",club),("user",user),("doc",JsonSerializer.Serialize(input,Json.Options)));return input;
 });
 api.MapGet("/meets/{id}",async(string id,Database db,HttpContext ctx)=>{var m=await db.GetMeet(id);await ClubRole(db,m.ClubId,UserId(ctx));return m;});
 api.MapPut("/meets/{id}/settings",async(string id,Meet input,Database db,HttpContext ctx)=>{
- var user=UserId(ctx);var m=await Managed(db,id,user);MeetRules.CanGenerate(m);MeetRules.Require(input.Players.Select(p=>p.Id).SequenceEqual(m.Players.Select(p=>p.Id)),"Use the roster controls to change players.");input.PublicEnabled=m.PublicEnabled;input.Id=id;input.ClubId=m.ClubId;input.CreatedAt=m.CreatedAt;input.Matches=[];foreach(var p in input.Players)p.UserId=m.Players.Single(old=>old.Id==p.Id).UserId;Scheduler.Generate(input);await db.Save(input,input.Revision,user,"settings");return input;
+ var user=UserId(ctx);var m=await Managed(db,id,user);MeetRules.CanGenerate(m);MeetRules.Require(input.Players.Select(p=>p.Id).SequenceEqual(m.Players.Select(p=>p.Id)),"Use the roster controls to change players.");input.PublicEnabled=m.PublicEnabled;input.Id=id;input.ClubId=m.ClubId;input.CreatedAt=m.CreatedAt;input.Matches=[];foreach(var p in input.Players){var old=m.Players.Single(old=>old.Id==p.Id);p.UserId=old.UserId;p.ClubPlayerId=old.ClubPlayerId;p.ReclubProfileUrl=old.ReclubProfileUrl;}Scheduler.Generate(input);await db.Save(input,input.Revision,user,"settings");return input;
 });
 api.MapPost("/meets/{id}/generate",async(string id,RevisionInput input,Database db,HttpContext ctx)=>{var user=UserId(ctx);var m=await Managed(db,id,user);Scheduler.Generate(m);await db.Save(m,input.Revision,user,"generate");return m;});
 api.MapPost("/meets/{id}/generate-match",async(string id,GenerateMatchInput input,Database db,HttpContext ctx)=>{var user=UserId(ctx);var m=Scheduler.AddMatch(await Managed(db,id,user),input.Court);await db.Save(m,input.Revision,user,"generate-match");return m;});

@@ -1,4 +1,6 @@
-import {SortableTable} from "./SortableTable";
+import { ClubPlayersPage } from "./ClubPlayersPage";
+import type { ClubPlayer } from "./types";
+import { SortableTable } from "./SortableTable";
 import { MeetResults, ClubResults } from "./ResultsPage";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
@@ -69,7 +71,12 @@ const short = (v: string) => {
 type ReclubPreview = {
   url: string;
   name: string;
-  players: { id: string; name: string; status: number }[];
+  players: {
+    id: string;
+    name: string;
+    status: number;
+    profileUrl?: string | null;
+  }[];
 };
 type Modal = { kind: string; match?: Match; player?: Player };
 function Field({
@@ -191,6 +198,7 @@ function Auth({ onLogin }: { onLogin: (u: User) => void }) {
           name: f.get("name") || "",
           email: f.get("email"),
           password: f.get("password"),
+          rememberMe: !register && f.get("rememberMe") === "on",
         }),
       );
     } catch (e) {
@@ -250,6 +258,12 @@ function Auth({ onLogin }: { onLogin: (u: User) => void }) {
             />
           </Field>
           {register && <p className="subtle">Use at least 12 characters.</p>}
+          {!register && (
+            <label className="remember-me">
+              <input type="checkbox" name="rememberMe" /> Remember me on this
+              device <span className="subtle">(30 days)</span>
+            </label>
+          )}
           {error && (
             <p className="error" role="alert">
               {error}
@@ -304,6 +318,19 @@ function Workspace() {
   );
   const [importIds, setImportIds] = useState<string[]>([]);
   const [playersText, setPlayersText] = useState("");
+  const [clubPlayers, setClubPlayers] = useState<ClubPlayer[]>([]);
+  const [draftClubIds, setDraftClubIds] = useState<string[]>([]);
+  const [draftIdentities, setDraftIdentities] = useState<
+    { name: string; profileUrl?: string | null }[]
+  >([]);
+  async function reloadClubPlayers() {
+    const [profiles, people] = await Promise.all([
+      api<ClubPlayer[]>("/clubs/" + clubId + "/players"),
+      api<Member[]>("/clubs/" + clubId + "/members"),
+    ]);
+    setClubPlayers(profiles);
+    setMembers(people);
+  }
   const [subOutgoing, setSubOutgoing] = useState("");
   const [subIncoming, setSubIncoming] = useState("");
   const [extraCount, setExtraCount] = useState(1);
@@ -417,15 +444,20 @@ function Workspace() {
     setMeet(null);
     setSummaries([]);
     setMembers([]);
+    setClubPlayers([]);
+    setDraftClubIds([]);
+    setDraftIdentities([]);
     setRound(0);
     Promise.all([
       api<MeetSummary[]>("/clubs/" + clubId + "/meets"),
       api<Member[]>("/clubs/" + clubId + "/members"),
+      api<ClubPlayer[]>("/clubs/" + clubId + "/players"),
     ])
-      .then(async ([ms, mem]) => {
+      .then(async ([ms, mem, profiles]) => {
         if (!active) return;
         setSummaries(ms);
         setMembers(mem);
+        setClubPlayers(profiles);
         const preferred =
           ms.find((m) => m.id === remembered("rally.meet." + clubId)) || ms[0];
         if (preferred) {
@@ -524,6 +556,8 @@ function Workspace() {
   function open(kind: string, match?: Match, p?: Player) {
     setError("");
     if (kind === "create") {
+      setDraftClubIds([]);
+      setDraftIdentities([]);
       setPlayersText("");
       setReclubPreview(null);
       setReclubUrl("");
@@ -579,7 +613,7 @@ function Workspace() {
         setModal(null);
       } else if (kind === "create" || kind === "settings") {
         const editing = kind === "settings";
-        const players = editing
+        const players: Player[] = editing
           ? meet!.players.map((p) => ({
               ...p,
               skill:
@@ -598,8 +632,26 @@ function Workspace() {
                   name: name.trim(),
                   skill: value?.trim() ? Number(value.trim()) : null,
                   userId: null,
+                  reclubProfileUrl:
+                    draftIdentities.filter((p) => p.name === name.trim())
+                      .length === 1
+                      ? draftIdentities.find((p) => p.name === name.trim())
+                          ?.profileUrl
+                      : null,
                 };
               });
+        if (!editing)
+          for (const profile of clubPlayers.filter((p) =>
+            draftClubIds.includes(p.id),
+          ))
+            players.push({
+              id: crypto.randomUUID(),
+              name: profile.name,
+              skill: profile.skill,
+              userId: null,
+              clubPlayerId: profile.id,
+              side: profile.side,
+            });
         if (players.length < 4 || players.length > 24)
           throw Error("Enter 4–24 players, one per line.");
         let fixedPairs: string[][] = [];
@@ -700,8 +752,15 @@ function Workspace() {
           setToast("Extra rounds added. Existing matches are unchanged.");
         }
       } else if (kind === "addPlayer") {
- await change("/players", {name:f.get("name"),side:f.get("side"),skill:f.get("skill")?Number(f.get("skill")):null,regenerate:f.get("regenerate")==="on",partnerName:f.get("partnerName"),partnerSide:f.get("partnerSide")||"both"});
- } else if (kind === "arrival") {
+        await change("/players", {
+          name: f.get("name"),
+          side: f.get("side"),
+          skill: f.get("skill") ? Number(f.get("skill")) : null,
+          regenerate: f.get("regenerate") === "on",
+          partnerName: f.get("partnerName"),
+          partnerSide: f.get("partnerSide") || "both",
+        });
+      } else if (kind === "arrival") {
         await change("/arrivals", {
           playerId: modal!.player!.id,
           fromRound: Number(f.get("fromRound")),
@@ -1032,7 +1091,8 @@ function Workspace() {
         <div className="nav-label">WORKSPACE</div>
         {[
           ["overview", "Meet dashboard", Grid2X2],
-          ["players", "Players", Users],
+          ["players", "Meet players", Users],
+          ["club-players", "Club players", Users],
           ["results", "Meet results", History],
           ["club-results", "Club history & rankings", History],
           ["history", "Match history", History],
@@ -1178,6 +1238,16 @@ function Workspace() {
                 Check membership
               </Button>
             </div>
+          ) : view === "club-players" ? (
+            <ClubPlayersPage
+              key={clubId}
+              clubId={clubId}
+              profiles={clubPlayers}
+              organizer={!!clubAdmin}
+              meet={meet}
+              onReload={reloadClubPlayers}
+              onMeet={setMeet}
+            />
           ) : view === "club-results" ? (
             <ClubResults
               key={clubId}
@@ -1328,10 +1398,25 @@ function Workspace() {
                               aria-label={courtName(m.court)}
                               tabIndex={m.status === "live" ? 0 : undefined}
                               onClick={(event) => {
-                                if (m.status === "live" && !busy && !(event.target as HTMLElement).closest("button, a, input, select")) open("result", m);
+                                if (
+                                  m.status === "live" &&
+                                  !busy &&
+                                  !(event.target as HTMLElement).closest(
+                                    "button, a, input, select",
+                                  )
+                                )
+                                  open("result", m);
                               }}
                               onKeyDown={(event) => {
-                                if (event.target === event.currentTarget && m.status === "live" && !busy && (event.key === "Enter" || event.key === " ")) {event.preventDefault();open("result", m);}
+                                if (
+                                  event.target === event.currentTarget &&
+                                  m.status === "live" &&
+                                  !busy &&
+                                  (event.key === "Enter" || event.key === " ")
+                                ) {
+                                  event.preventDefault();
+                                  open("result", m);
+                                }
                               }}
                             >
                               <header className="compact-court-heading">
@@ -1615,7 +1700,12 @@ function Workspace() {
                             Choose fixed pairs
                           </Button>
                         )}
-                        <Button primary onClick={() => open("addPlayer")}>Add player</Button>
+                        <Button onClick={() => setView("club-players")}>
+                          Choose club player
+                        </Button>
+                        <Button primary onClick={() => open("addPlayer")}>
+                          Add player
+                        </Button>
                         <Button onClick={() => open("replace")}>
                           Add replacement player
                         </Button>
@@ -2404,8 +2494,8 @@ function Workspace() {
                         <strong>{reclubPreview.name}</strong>
                         <p className="subtle">
                           Review the public roster. Confirmed players are
-                          selected; other statuses require your review.
-                          Importing does not link accounts.
+                          selected; other statuses require your review. Saved
+                          club profiles are matched by their Reclub link.
                         </p>
                         {reclubPreview.players.map((p) => (
                           <label key={p.id} className="import-player">
@@ -2431,6 +2521,11 @@ function Workspace() {
                         <Button
                           disabled={!importIds.length || busy}
                           onClick={() => {
+                            setDraftIdentities(
+                              reclubPreview.players.filter((p) =>
+                                importIds.includes(p.id),
+                              ),
+                            );
                             setPlayersText(
                               reclubPreview.players
                                 .filter((p) => importIds.includes(p.id))
@@ -2452,6 +2547,36 @@ function Workspace() {
                     )}
                   </div>
                 )}
+                {modal.kind === "create" && clubPlayers.length > 0 && (
+                  <div className="field full">
+                    <span>Choose club players</span>
+                    <p className="subtle">
+                      Saved club names, sides and skills are used. Add other
+                      players below or import from Reclub.
+                    </p>
+                    <div className="club-player-picker">
+                      {clubPlayers.map((p) => (
+                        <label key={p.id}>
+                          <input
+                            type="checkbox"
+                            checked={draftClubIds.includes(p.id)}
+                            onChange={(e) =>
+                              setDraftClubIds(
+                                e.target.checked
+                                  ? [...draftClubIds, p.id]
+                                  : draftClubIds.filter((id) => id !== p.id),
+                              )
+                            }
+                          />
+                          {p.name} · {p.side}
+                          {draftMode === "balanced"
+                            ? " · skill " + (p.skill ?? "not set")
+                            : ""}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {modal.kind === "create" && (
                   <Field
                     label={
@@ -2466,7 +2591,7 @@ function Workspace() {
                       value={playersText}
                       onChange={(e) => setPlayersText(e.target.value)}
                       rows={7}
-                      required
+                      required={!draftClubIds.length}
                       placeholder={
                         draftMode === "balanced"
                           ? "Ardy | 3.5\nNadia | 3\nRizky | 4\nSarah | 3"
@@ -2585,16 +2710,62 @@ function Workspace() {
               </p>
             </>
           )}
-          {modal.kind === "addPlayer" && meet && <>
- <p className="hint">Add someone without replacing an existing player. Regeneration preserves started and completed matches and explicit substitutions. New players receive a fair share from the current round onward.</p>
- <Field label="New player's name"><input name="name" required maxLength={80}/></Field>
- <Field label="Playing side"><select name="side" defaultValue="both"><option value="both">Both</option><option value="left">Left only</option><option value="right">Right only</option></select></Field>
- {meet.mode==="balanced"&&<Field label="Skill"><input type="number" name="skill" min="1" max="5" step="0.5" required/></Field>}
- {meet.mode==="fixed"&&<><p>Fixed-partner meets add a new pair together.</p><Field label="New partner's name"><input name="partnerName" required maxLength={80}/></Field><Field label="Partner's playing side"><select name="partnerSide" defaultValue="both"><option value="both">Both</option><option value="left">Left only</option><option value="right">Right only</option></select></Field></>}
- <label><input type="checkbox" name="regenerate" defaultChecked/> Regenerate remaining matches now</label>
- <p className="subtle">Uncheck to add to the roster only, then use Regenerate remaining or generate extra matches later.</p>
- </>}
- {modal.kind === "replace" && (
+          {modal.kind === "addPlayer" && meet && (
+            <>
+              <p className="hint">
+                Add someone without replacing an existing player. Regeneration
+                preserves started and completed matches and explicit
+                substitutions. New players receive a fair share from the current
+                round onward.
+              </p>
+              <Field label="New player's name">
+                <input name="name" required maxLength={80} />
+              </Field>
+              <Field label="Playing side">
+                <select name="side" defaultValue="both">
+                  <option value="both">Both</option>
+                  <option value="left">Left only</option>
+                  <option value="right">Right only</option>
+                </select>
+              </Field>
+              {meet.mode === "balanced" && (
+                <Field label="Skill">
+                  <input
+                    type="number"
+                    name="skill"
+                    min="1"
+                    max="5"
+                    step="0.5"
+                    required
+                  />
+                </Field>
+              )}
+              {meet.mode === "fixed" && (
+                <>
+                  <p>Fixed-partner meets add a new pair together.</p>
+                  <Field label="New partner's name">
+                    <input name="partnerName" required maxLength={80} />
+                  </Field>
+                  <Field label="Partner's playing side">
+                    <select name="partnerSide" defaultValue="both">
+                      <option value="both">Both</option>
+                      <option value="left">Left only</option>
+                      <option value="right">Right only</option>
+                    </select>
+                  </Field>
+                </>
+              )}
+              <label>
+                <input type="checkbox" name="regenerate" defaultChecked />{" "}
+                Regenerate remaining matches now
+              </label>
+              <p className="subtle">
+                Uncheck to add to the roster only, then use Regenerate remaining
+                or generate extra matches later.
+              </p>
+            </>
+          )}
+          {modal.kind === "replace" && (
             <>
               <div className="hint">
                 Register a new player for the next unstarted match or remaining
